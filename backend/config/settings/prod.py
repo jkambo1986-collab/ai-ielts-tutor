@@ -16,8 +16,9 @@ SECURE_REFERRER_POLICY = "same-origin"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
-# In prod, default to Vertex (overridable via env)
-USE_VERTEX_AI = True
+# Vertex Live API isn't fully wired yet — honour the env var so we can keep
+# AI Studio in prod until ephemeral-token minting lands.
+# `USE_VERTEX_AI` is read from env in `base.py`; nothing to override here.
 TENANT_RESOLVE_FROM_SUBDOMAIN = True
 
 # Structured JSON logs — easier to parse by Railway / Datadog / etc.

@@ -10,7 +10,8 @@ startCommand = "python manage.py migrate --noinput && python manage.py collectst
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 
-# Health check the platform pings to verify deploys
+# Health check the platform pings to verify deploys.
+# Routes are mounted under /api/v1/ in config/urls.py.
 [deploy.healthcheck]
-path = "/api/healthz"
+path = "/api/v1/healthz"
 timeoutSeconds = 30
