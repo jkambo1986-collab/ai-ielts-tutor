@@ -203,6 +203,9 @@ TENANT_RESOLVE_FROM_SUBDOMAIN = config("TENANT_RESOLVE_FROM_SUBDOMAIN", default=
 
 USE_VERTEX_AI = config("USE_VERTEX_AI", default=False, cast=bool)
 GEMINI_API_KEY = config("GEMINI_API_KEY", default="")
+# Optional dedicated AI Studio key for Live (Speaking) calls only — used when
+# USE_VERTEX_AI=True and Vertex Live ephemeral tokens aren't wired yet.
+GEMINI_LIVE_API_KEY = config("GEMINI_LIVE_API_KEY", default="")
 GOOGLE_CLOUD_PROJECT = config("GOOGLE_CLOUD_PROJECT", default="")
 GCP_REGION = config("GCP_REGION", default="us-central1")
 GOOGLE_APPLICATION_CREDENTIALS_JSON = config("GOOGLE_APPLICATION_CREDENTIALS_JSON", default="")

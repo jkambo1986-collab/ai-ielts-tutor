@@ -525,25 +525,32 @@ Vocabulary to practice: {", ".join(vocabulary)}"""
 def mint_live_session_token(user_id: str) -> dict:
     """Returns the credentials the FE needs to connect to Gemini Live directly.
 
-    For dev (AI Studio), the FE can use the Gemini API key directly — but we
-    still mediate so we can replace this in prod with a server-minted ephemeral
-    token (Gemini supports `auth_tokens` flow for Vertex Live).
+    Bridge mode:
+      - Non-Live calls (writing eval, listening test gen, weakness analysis,
+        etc.) go through `GeminiClient` and respect `USE_VERTEX_AI=True`,
+        which draws Vertex credits.
+      - The Live API does NOT yet have its Vertex ephemeral-token flow wired
+        (`auth_tokens.create`). Until that lands, Live falls back to AI Studio
+        using `GEMINI_LIVE_API_KEY` (preferred) or `GEMINI_API_KEY` (legacy).
+        Note: Live calls in this fallback mode do NOT draw Vertex credits —
+        only the non-Live calls do. That's a known temporary trade-off.
 
-    For now, returns the API key in dev and a stub in prod (Vertex Live
-    requires a different auth flow we'll wire up in a later phase).
+    Set `GEMINI_LIVE_API_KEY` to an AI Studio key dedicated to Live so that
+    `GEMINI_API_KEY` can be omitted entirely once Vertex is in use.
     """
     from django.conf import settings
 
-    if settings.USE_VERTEX_AI:
-        # TODO(prod): mint a short-lived ephemeral token via Vertex auth_tokens.create
-        # See https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.endpoints/streamGenerateContent
+    # Prefer a dedicated live key so `GEMINI_API_KEY` is optional in Vertex mode.
+    live_key = getattr(settings, "GEMINI_LIVE_API_KEY", "") or settings.GEMINI_API_KEY
+    if not live_key:
         raise AIError(
-            "Live speaking sessions are not yet wired for Vertex mode. "
-            "Set USE_VERTEX_AI=False in dev for now.",
+            "Live speaking sessions need an AI Studio key. "
+            "Set GEMINI_LIVE_API_KEY (recommended) or GEMINI_API_KEY. "
+            "Vertex Live ephemeral tokens are a TODO.",
         )
     return {
         "mode": "ai_studio",
-        "api_key": settings.GEMINI_API_KEY,
+        "api_key": live_key,
         "model": settings.GEMINI_LIVE_MODEL,
     }
 
