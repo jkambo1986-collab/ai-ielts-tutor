@@ -1,3 +1,14 @@
+"""
+Analytics view layer.
+
+Includes the legacy `/analytics/overview` (skill estimates) plus the
+AI-driven endpoints — weakness analysis (writing/speaking) cached for 7
+days, single-paragraph comprehensive analysis, study-plan generation, and
+clear-history wipe. The richer dashboard payload lives in
+`views/dashboard.py`; this module is the older surface kept for callers
+that haven't migrated to the consolidated endpoint yet.
+"""
+
 from datetime import timedelta
 
 from django.utils import timezone

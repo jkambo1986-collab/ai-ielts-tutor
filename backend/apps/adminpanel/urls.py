@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/admin/* — sitemap, users list, usage stats, audit log, invite management. Restricted to institute admins via the views."""
+
 from django.urls import path
 
 from apps.accounts.invitations import (

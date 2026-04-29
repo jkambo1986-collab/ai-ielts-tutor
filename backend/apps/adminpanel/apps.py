@@ -1,3 +1,5 @@
+"""Django app config for the admin panel — sitemap, users list, usage stats, audit log."""
+
 from django.apps import AppConfig
 
 

@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/speaking/* — Live session start/end, transcript analysis, contextual prompts, pronunciation, cue cards, mock checkpoint/reconnect, examiner notes, instructor review, exports, shadow analyze, whisper hint, band-7 rephrase."""
+
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 

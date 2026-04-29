@@ -1,3 +1,5 @@
+"""Django app config for health endpoints — /healthz (liveness) + /readyz (readiness)."""
+
 from django.apps import AppConfig
 
 

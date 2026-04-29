@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/billing/* — current subscription, grant Pro (admin-only), bulk-grant, revoke."""
+
 from django.urls import path
 
 from apps.billing.views import (

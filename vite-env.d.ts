@@ -1,3 +1,7 @@
+/**
+ * @file Type augmentation for Vite's `import.meta.env`.
+ * Lists every `VITE_*` variable the FE reads so TypeScript can flag typos.
+ */
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {

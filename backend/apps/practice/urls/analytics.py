@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/analytics/* — dashboard payload, alerts, vocab, error cards (SRS), mock tests, calibration, share links, cohort, scorecard, reattempt-diff, notifications, drafts, public profile, calendar export, certificate, onboarding completion."""
+
 from django.urls import path
 
 from apps.practice.views.analytics import (

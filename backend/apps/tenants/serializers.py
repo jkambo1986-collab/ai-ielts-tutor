@@ -1,3 +1,5 @@
+"""Serializers for Institute + InstituteSettings — public shape exposed via the tenants API."""
+
 from rest_framework import serializers
 
 from apps.tenants.models import Institute, InstituteSettings

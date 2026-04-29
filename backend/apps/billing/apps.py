@@ -1,3 +1,5 @@
+"""Django app config for billing — Subscription, feature gates, grant/revoke Pro."""
+
 from django.apps import AppConfig
 
 

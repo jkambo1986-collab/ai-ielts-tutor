@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/content/* — per-institute prompt library."""
+
 from django.urls import path
 
 from apps.content.views import PromptDetailView, PromptsListView

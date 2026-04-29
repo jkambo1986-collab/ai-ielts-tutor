@@ -1,3 +1,5 @@
+"""Django app config for the per-institute prompt library."""
+
 from django.apps import AppConfig
 
 

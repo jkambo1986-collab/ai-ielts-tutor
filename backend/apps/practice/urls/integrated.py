@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/integrated-skills/* — Listen-Summarize and Read-Listen-Write composite tasks."""
+
 from django.urls import path
 
 from apps.practice.views.integrated_ai import (

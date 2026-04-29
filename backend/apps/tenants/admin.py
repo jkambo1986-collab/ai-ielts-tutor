@@ -1,3 +1,5 @@
+"""Django admin registration for Institute + InstituteSettings."""
+
 from django.contrib import admin
 
 from apps.tenants.models import Institute, InstituteSettings

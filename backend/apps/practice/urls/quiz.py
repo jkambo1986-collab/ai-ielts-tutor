@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/quiz/* — generate quiz + rephrase explanation."""
+
 from django.urls import path
 
 from apps.practice.views.quiz_ai import GenerateQuizView, RephraseExplanationView

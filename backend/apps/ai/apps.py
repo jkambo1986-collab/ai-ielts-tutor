@@ -1,3 +1,5 @@
+"""Django app config for the AI layer — GeminiClient + service.py for all Gemini calls."""
+
 from django.apps import AppConfig
 
 

@@ -1,3 +1,5 @@
+"""Django app config for shared infrastructure — throttles, middleware, soft-delete mixin."""
+
 from django.apps import AppConfig
 
 

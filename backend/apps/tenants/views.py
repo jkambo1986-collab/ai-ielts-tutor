@@ -1,3 +1,5 @@
+"""Tenant views — exposes the institute resolved by TenantMiddleware (X-Institute-Slug header in dev, subdomain in prod) so the frontend can read its current tenant context."""
+
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView

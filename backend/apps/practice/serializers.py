@@ -1,3 +1,16 @@
+"""
+DRF serializers for the practice domain.
+
+Two patterns:
+  - `_BaseSessionSerializer` enforces that `institute` and `user` are set
+    server-side in `perform_create`, never accepted from the client.
+  - List endpoints get a slimmer serializer (omits transcripts/essays) so
+    history pages don't ship hundreds of KB to the browser.
+
+Plus serializers for the dashboard / learner-state stores: vocabulary,
+error cards, mock tests, calibration, share links, alerts.
+"""
+
 from rest_framework import serializers
 
 from apps.practice.models import (

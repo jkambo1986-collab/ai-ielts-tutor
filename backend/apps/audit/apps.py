@@ -1,3 +1,5 @@
+"""Django app config for the append-only AuditLogEntry — every Pro grant, role change, etc."""
+
 from django.apps import AppConfig
 
 

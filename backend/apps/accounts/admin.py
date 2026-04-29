@@ -1,3 +1,5 @@
+"""Django admin registration for the custom User model — institute + role + plan visible at a glance."""
+
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 

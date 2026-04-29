@@ -1,3 +1,5 @@
+"""Django admin registration for AuditLogEntry. Read-only — never delete or edit audit rows."""
+
 from django.contrib import admin
 
 from apps.audit.models import AuditLogEntry

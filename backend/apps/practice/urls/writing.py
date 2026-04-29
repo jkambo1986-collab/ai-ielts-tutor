@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/writing/* — evaluate, essay-plan, cohesion-analysis, contextual prompts, drafts (P4), session viewset."""
+
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 

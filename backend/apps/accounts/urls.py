@@ -1,3 +1,5 @@
+"""URL routes for /api/v1/auth/* — signup, login, refresh, logout, me, password reset, plus invitation-accept."""
+
 from django.urls import path
 
 from apps.accounts import invitations, views

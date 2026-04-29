@@ -1,3 +1,5 @@
+"""Django app config for multi-tenancy — Institute, InstituteSettings, TenantMiddleware, TenantManager."""
+
 from django.apps import AppConfig
 
 

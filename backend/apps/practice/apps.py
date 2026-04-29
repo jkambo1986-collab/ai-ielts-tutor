@@ -1,3 +1,5 @@
+"""Django app config for the practice domain — sessions, dashboard analytics, vocab, SRS, mock tests, share links, alerts, notifications."""
+
 from django.apps import AppConfig
 
 
