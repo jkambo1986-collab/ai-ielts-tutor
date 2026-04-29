@@ -204,14 +204,20 @@ class NotificationsView(APIView):
                     )
                     break
 
-        # Unseen instructor annotations
+        # Unseen instructor annotations.
+        # Materialise existing notification annotation_ids to Python strings
+        # first — Postgres cannot directly compare a uuid column to a jsonb
+        # subquery (`uuid = jsonb` operator does not exist).
+        existing_anno_ids = {
+            str(v)
+            for v in Notification.objects.filter(
+                user=user, notification_type=Notification.TYPE_INSTRUCTOR_NOTE,
+            ).values_list("payload__annotation_id", flat=True)
+            if v
+        }
         unseen_anno = SessionAnnotation.objects.filter(
             student=user, created_at__gte=recent,
-        ).exclude(
-            id__in=Notification.objects.filter(
-                user=user, notification_type=Notification.TYPE_INSTRUCTOR_NOTE,
-            ).values_list("payload__annotation_id", flat=True),
-        )
+        ).exclude(id__in=existing_anno_ids)
         for anno in unseen_anno[:5]:
             Notification.objects.create(
                 user=user, institute=user.institute,
