@@ -1,0 +1,7 @@
+{
+  "name": "V3 Prod Ready-AI IELTS Tutor",
+  "description": "An AI-powered platform to help you practice for the IELTS exam. Get instant feedback on your writing, practice your speaking with a conversational AI, and improve your reading skills with AI-generated exercises.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

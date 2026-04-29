@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#3b82f6" />
+    <title>AI IELTS Tutor</title>
+    
+    <!-- Include Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Preconnect to Google Fonts for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Import the 'Inter' font family -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Apply the custom font to the body -->
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+      }
+    </style>
+
+    <!-- 
+      Import Map: Manages JavaScript module dependencies without a build step.
+      This allows us to use bare module specifiers (e.g., "react") directly in the browser.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://aistudiocdn.com/@google/genai@^1.21.0",
+          "react/": "https://aistudiocdn.com/react@^19.1.1/",
+          "react": "https://aistudiocdn.com/react@^19.1.1",
+          "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/"
+        }
+      }
+    </script>
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <!-- The root element where the React app will be mounted -->
+    <div id="root"></div>
+    <!-- The main entry point script for the application -->
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
