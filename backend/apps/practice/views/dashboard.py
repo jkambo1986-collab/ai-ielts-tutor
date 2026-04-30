@@ -8,10 +8,13 @@ per-task-type splits, vocab stats, calibration delta, regression alerts.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone as _tz
 from decimal import Decimal
 from statistics import mean
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from django.db.models import Avg, Count, Sum
 from django.utils import timezone
@@ -320,8 +323,10 @@ class DashboardAnalyticsView(APIView):
         # Refresh alerts (#28) — idempotent; only creates new rows when conditions met.
         try:
             generate_alerts(user)
-        except Exception:  # never block the dashboard on alert generation
-            pass
+        except Exception:
+            # Never block the dashboard on alert generation, but DO log it
+            # so silent regressions don't go unnoticed.
+            log.warning("generate_alerts failed for user %s", user.id, exc_info=True)
         alerts_qs = DashboardAlert.objects.filter(user=user, dismissed_at__isnull=True).order_by("-created_at")[:5]
         alerts = [
             {

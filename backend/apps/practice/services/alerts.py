@@ -52,11 +52,25 @@ def _band_series_speaking(user) -> list[float]:
     return out
 
 
-def _alert_exists(user, alert_type: str) -> bool:
+def _alert_exists(user, alert_type: str, payload_match: dict | None = None) -> bool:
+    """True if an undismissed alert of the same kind exists in the last 7 days.
+
+    `alert_type` matches DashboardAlert.alert_type. When `payload_match` is
+    given, every key/value must also match the row's payload JSON — that's
+    how we differentiate "regression_writing" from "regression_speaking",
+    since both share alert_type='regression'.
+    """
     cutoff = timezone.now() - timedelta(days=7)
-    return DashboardAlert.objects.filter(
-        user=user, alert_type=alert_type, created_at__gte=cutoff
-    ).exists()
+    qs = DashboardAlert.objects.filter(
+        user=user,
+        alert_type=alert_type,
+        created_at__gte=cutoff,
+        dismissed_at__isnull=True,
+    )
+    if payload_match:
+        for key, value in payload_match.items():
+            qs = qs.filter(**{f"payload__{key}": value})
+    return qs.exists()
 
 
 def _detect_regression(series: list[float]) -> float | None:
@@ -91,7 +105,9 @@ def generate_alerts(user) -> list[DashboardAlert]:
     # Regression: writing
     writing_series = _band_series_writing(user)
     delta = _detect_regression(writing_series)
-    if delta is not None and not _alert_exists(user, "regression_writing"):
+    if delta is not None and not _alert_exists(
+        user, DashboardAlert.TYPE_REGRESSION, {"skill": "writing"},
+    ):
         created.append(DashboardAlert.objects.create(
             user=user, institute=user.institute,
             alert_type=DashboardAlert.TYPE_REGRESSION,
@@ -106,7 +122,9 @@ def generate_alerts(user) -> list[DashboardAlert]:
     # Regression: speaking
     speaking_series = _band_series_speaking(user)
     delta = _detect_regression(speaking_series)
-    if delta is not None and not _alert_exists(user, "regression_speaking"):
+    if delta is not None and not _alert_exists(
+        user, DashboardAlert.TYPE_REGRESSION, {"skill": "speaking"},
+    ):
         created.append(DashboardAlert.objects.create(
             user=user, institute=user.institute,
             alert_type=DashboardAlert.TYPE_REGRESSION,
@@ -136,7 +154,13 @@ def generate_alerts(user) -> list[DashboardAlert]:
     # Goal reached
     target = float(user.target_score or 7.0)
     for skill, series in (("writing", writing_series), ("speaking", speaking_series)):
-        if series and series[-1] >= target and not _alert_exists(user, f"goal_{skill}"):
+        if (
+            series
+            and series[-1] >= target
+            and not _alert_exists(
+                user, DashboardAlert.TYPE_GOAL_REACHED, {"skill": skill},
+            )
+        ):
             created.append(DashboardAlert.objects.create(
                 user=user, institute=user.institute,
                 alert_type=DashboardAlert.TYPE_GOAL_REACHED,
