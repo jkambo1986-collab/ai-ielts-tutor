@@ -1,5 +1,8 @@
 """Speaking AI endpoints — start/end session, analyze, prompts, pronunciation practice."""
 
+from datetime import timedelta
+
+from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -102,7 +105,29 @@ class StartSessionView(APIView):
             mock_state=mock_state,
             cue_card=s.validated_data.get("cue_card"),
         )
+
+        # F8: stamp cue-card consumption when an `id` is supplied with the
+        # cue card payload. Best-effort; missing id (institute-curated FE
+        # passing free-form bullets) is fine.
+        cue_card_payload = s.validated_data.get("cue_card") or {}
+        cue_card_id = cue_card_payload.get("id") if isinstance(cue_card_payload, dict) else None
+        if cue_card_id:
+            try:
+                from uuid import UUID
+                from apps.practice.models import CueCard, CueCardConsumption
+                cc = CueCard.objects.filter(id=UUID(str(cue_card_id))).first()
+                if cc:
+                    CueCardConsumption.objects.create(
+                        user=request.user, cue_card=cc, speaking_session=session,
+                    )
+            except (TypeError, ValueError):
+                pass
         live_credentials = ai_service.mint_live_session_token(str(request.user.id))
+        # F1: stamp the expected expiry so the FE knows when to re-mint.
+        ttl = int(live_credentials.get("expires_in_seconds") or 0)
+        if ttl > 0:
+            session.live_token_expires_at = timezone.now() + timedelta(seconds=ttl)
+            session.save(update_fields=["live_token_expires_at"])
         # D1: build the system instruction server-side so we can inject L1 +
         # proficiency without trusting the FE. The FE merges this with its
         # transport-level instructions.
@@ -165,6 +190,7 @@ class EndSessionView(APIView):
             if len(user_text) > 30:
                 analysis = ai_service.analyze_speaking_performance(
                     user_text, session.mode, ctx=build_for_user(request.user),
+                    whisper_hints_used=int(getattr(session, "whisper_hints_used", 0) or 0),
                 )
                 session.analysis = analysis
 
@@ -186,7 +212,15 @@ class EndSessionView(APIView):
         except Exception:
             pass
 
-        session.save()
+        # B1.8: targeted update_fields prevents end-session from clobbering
+        # in-flight transcript writes from a still-open client (e.g. the FE
+        # checkpoint racing the end call). Without update_fields, .save()
+        # rewrites every column including `transcript`, which can drop turns
+        # the client appended after we read the row.
+        session.save(update_fields=[
+            "transcript", "duration_seconds", "analysis",
+            "fluency_metrics", "quality_score",
+        ])
 
         # Auto-extract SRS error cards from analysis — best-effort.
         new_cards = []
@@ -298,10 +332,21 @@ class AnalyzeTranscriptView(APIView):
                 {"code": qe.code, "detail": qe.advice, **qe.payload},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+        # Hint count: prefer the persisted value on the session row when one
+        # is provided; otherwise treat as 0 (ad-hoc analyze of raw text).
+        sid_for_hint = s.validated_data.get("session_id")
+        hint_count = 0
+        if sid_for_hint:
+            row = SpeakingSession.objects.filter(
+                id=sid_for_hint, user=request.user, institute=request.user.institute,
+            ).first()
+            if row:
+                hint_count = int(getattr(row, "whisper_hints_used", 0) or 0)
         analysis = ai_service.analyze_speaking_performance(
             transcript=s.validated_data["transcript"], mode=s.validated_data["mode"],
             ctx=build_for_user(request.user),
             osr=s.validated_data.get("osr", False),
+            whisper_hints_used=hint_count,
         )
 
         sid = s.validated_data.get("session_id")

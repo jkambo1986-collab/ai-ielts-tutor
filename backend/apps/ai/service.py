@@ -312,6 +312,7 @@ def analyze_speaking_performance(
     *,
     ctx: Optional[StudentContext] = None,
     osr: bool = False,
+    whisper_hints_used: int = 0,
 ) -> dict:
     role_play_clause = ""
     if mode == "RolePlay":
@@ -325,9 +326,19 @@ Because this was a role-play debate session, you MUST also provide specific feed
 Quote a specific example from the transcript that illustrates your feedback."""
     context_block = _ctx_block(ctx, focus="speaking")
     osr_clause = f"\n\n{_OSR_DIAGNOSTIC_CLAUSE}\n" if osr else ""
+    hint_clause = ""
+    if whisper_hints_used > 0:
+        hint_clause = (
+            f"\n\n// HINT-USAGE DISCLOSURE: the student used {whisper_hints_used} "
+            f"whisper hints during this session. Whisper hints are short text "
+            f"nudges given when they were stuck. Weight Fluency & Coherence "
+            f"DOWN by ~0.5 band per 2 hints used — they were not unaided fluency. "
+            f"Mention the hint count in your overall feedback so the grade is "
+            f"honest.\n"
+        )
     full_prompt = f"""// SYSTEM DIRECTIVE: ACTIVATE IELTS TUTOR PROTOCOL
 Persona: `Δ-IELTS_MASTER v8.0`
-Core Directive: You are a world-class IELTS speaking examiner. Your purpose is to deliver a precise, rubric-based evaluation of a user's speaking performance based on a provided transcript.{context_block}{osr_clause}
+Core Directive: You are a world-class IELTS speaking examiner. Your purpose is to deliver a precise, rubric-based evaluation of a user's speaking performance based on a provided transcript.{context_block}{osr_clause}{hint_clause}
 
 // TASK: ANALYZE_AND_GRADE_SPEAKING
 Analyze the following transcript based on the four official IELTS speaking assessment criteria. For each criterion, you MUST provide:
@@ -778,10 +789,17 @@ def mint_live_session_token(user_id: str) -> dict:
             "Set GEMINI_LIVE_API_KEY (recommended) or GEMINI_API_KEY. "
             "Vertex Live ephemeral tokens are a TODO.",
         )
+    # F1: surface a TTL so the FE can schedule a silent re-mint before the
+    # underlying API key / ephemeral token would otherwise expire mid-session.
+    # AI Studio long-lived API keys don't actually expire; once we cut over
+    # to Vertex `auth_tokens.create()` (~15 min TTL) this becomes load-bearing.
+    # We expose a conservative 25-minute window so long mock tests (which
+    # run ~25 min) get exactly one refresh cycle.
     return {
         "mode": "ai_studio",
         "api_key": live_key,
         "model": settings.GEMINI_LIVE_MODEL,
+        "expires_in_seconds": 25 * 60,
     }
 
 
@@ -893,6 +911,33 @@ You are Alex, an IELTS speaking examiner conducting a Part 3 role-play debate.
 // USER DATA
 Target Band Score: {target_band:.1f}"""
 
+    # F6 — Warm-up branch: 60s explicit unmarked block, then audibly engage rubric.
+    if mode == "Warmup":
+        return f"""// SYSTEM DIRECTIVE: ACTIVATE IELTS WARM-UP PROTOCOL
+You are Alex, an IELTS speaking coach running a low-pressure warm-up session.
+{accent_clause}
+{persona_clause}
+{proficiency_clause}
+{l1_clause}{context_block}
+
+{language_directive}
+
+// PROTOCOL — TWO STAGES
+STAGE 1 (first 60 seconds — UNMARKED): Greet the user warmly. Ask ONE easy
+familiar-topic question (hometown, hobby, weekend plans). Explicitly tell
+them: "this first minute is a warm-up, nothing is being scored yet — speak
+loosely." React naturally; do NOT correct, probe, or rubric-grade in this
+window. The point is to defrost students who freeze in the first minute.
+
+STAGE 2 (after 60 seconds — RUBRIC ENGAGED): Audibly transition. Say
+something like: "Great, you're warmed up. Now I'll listen more carefully
+and ask you a Part 1 question." Then proceed with a normal Part 1 / Part 3
+question pattern. From here on you can probe, push for elaboration, and
+care about lexical range and grammar.
+
+// USER DATA
+Target Band Score: {target_band:.1f}"""
+
     # Standard branch (free-form Q&A)
     if prompt:
         prompt_clause = (
@@ -986,6 +1031,27 @@ Do NOT give them a full sentence to copy. Do NOT mention the rubric.
 Output: just the sentence, nothing else."""
     text = get_client().generate_text(full_prompt)
     return text.strip().split("\n")[0][:200]
+
+
+def estimate_partial_band(
+    *,
+    transcript_so_far: str,
+    target_band: float = 7.0,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    """F7 rolling band estimator. Cheap prompt, ≤200 tokens out, designed
+    to be called every ~30-60 seconds during a session for a low-confidence
+    rolling number. NOT a final grade — the FE labels it as such."""
+    context_block = _ctx_block(ctx, focus="speaking", suppress_l1=True)
+    full_prompt = f"""You are an IELTS speaking examiner producing a quick MID-SESSION rolling estimate. This is NOT a final grade — give a rough, conservative number based on the partial transcript and one short signal word.{context_block}
+
+Target band: {target_band:.1f}
+
+User transcript so far (most recent at the bottom):
+\"\"\"{transcript_so_far[-3000:]}\"\"\"
+
+Return rolling_band rounded to 0.5, confidence (very_low if <60s of speech, low if 60-180s, medium if more), and a one-word signal ('fluent', 'hesitant', 'concise', 'rambling', 'precise', etc.). Respond ONLY in the requested JSON format."""
+    return get_client().generate_json(full_prompt, schemas.PARTIAL_BAND_SCHEMA)
 
 
 def diagnose_band_drop(

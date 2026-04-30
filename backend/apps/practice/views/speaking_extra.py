@@ -85,8 +85,50 @@ class _CheckpointInput(serializers.Serializer):
     mock_state = serializers.JSONField(required=False, allow_null=True)
 
 
+def _validate_mock_state(state) -> dict | None:
+    """B1.4: refuse obviously corrupt mock_state writes. Tolerate missing
+    keys (older clients), reject wrong types. Returns the cleaned dict or
+    None if the input is unrecoverable."""
+    if state is None:
+        return None
+    if not isinstance(state, dict):
+        return None
+    cleaned: dict = {}
+    if "current_part" in state:
+        cleaned["current_part"] = str(state["current_part"])[:24]
+    for k in ("part1", "part2", "part3", "repeats"):
+        v = state.get(k)
+        if isinstance(v, dict):
+            cleaned[k] = v
+    if "whisper_hints_used" in state:
+        try:
+            cleaned["whisper_hints_used"] = max(0, int(state["whisper_hints_used"]))
+        except (TypeError, ValueError):
+            pass
+    return cleaned
+
+
+def _dedupe_turns(existing: list, incoming: list) -> list:
+    """B1.5: when a reconnect re-checkpoints the same transcript, drop turns
+    we already have. Identity tuple: (speaker, text, timestamp)."""
+    if not isinstance(incoming, list):
+        return existing or []
+    seen: set[tuple] = set()
+    out: list = []
+    for src in (existing or []) + incoming:
+        if not isinstance(src, dict):
+            continue
+        key = (src.get("speaker"), (src.get("text") or "").strip(), src.get("timestamp"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(src)
+    return out
+
+
 class SpeakingCheckpointView(APIView):
-    """A4 transcript autosave. Idempotent — last write wins."""
+    """A4 transcript autosave. Now dedupes incoming turns against the
+    server's view (B1.5) so reconnect-driven duplicate writes don't pile up."""
 
     permission_classes = [IsAuthenticated]
 
@@ -94,66 +136,119 @@ class SpeakingCheckpointView(APIView):
         session = _user_session(request, session_id)
         s = _CheckpointInput(data=request.data)
         s.is_valid(raise_exception=True)
-        session.transcript = s.validated_data["transcript"]
-        session.duration_seconds = s.validated_data["duration_seconds"]
+        # B1.5: dedupe instead of last-write-wins so a reconnect that POSTs
+        # the same prefix can't truncate or duplicate already-saved turns.
+        session.transcript = _dedupe_turns(session.transcript or [], s.validated_data["transcript"])
+        # Monotonic duration — never roll back.
+        new_dur = int(s.validated_data["duration_seconds"] or 0)
+        session.duration_seconds = max(int(session.duration_seconds or 0), new_dur)
         if s.validated_data.get("mock_state") is not None:
-            session.mock_state = s.validated_data["mock_state"]
+            cleaned = _validate_mock_state(s.validated_data["mock_state"])
+            if cleaned is not None:
+                session.mock_state = cleaned
         session.save(update_fields=["transcript", "duration_seconds", "mock_state"])
-        return Response({"ok": True})
+        return Response({"ok": True, "transcript_turns": len(session.transcript or [])})
 
 
 class SpeakingReconnectView(APIView):
     """A7 reconnect — mints fresh live credentials for the *same* session row,
-    so the user resumes without losing transcript / mock state."""
+    so the user resumes without losing transcript / mock state. Stamps
+    live_token_expires_at so the FE watchdog (F1) can schedule the next refresh."""
 
     permission_classes = [IsAuthenticated]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "ai_generate"
 
     def post(self, request, session_id):
+        from datetime import timedelta
+        from django.utils import timezone
         session = _user_session(request, session_id)
         live_credentials = ai_service.mint_live_session_token(str(request.user.id))
+        ttl = int(live_credentials.get("expires_in_seconds") or 0)
+        if ttl > 0:
+            session.live_token_expires_at = timezone.now() + timedelta(seconds=ttl)
+            session.save(update_fields=["live_token_expires_at"])
         return Response({
             "session_id": str(session.id),
             "live": live_credentials,
             "transcript": session.transcript or [],
             "mock_state": session.mock_state,
             "duration_seconds": session.duration_seconds,
+            "live_token_expires_at": session.live_token_expires_at.isoformat() if session.live_token_expires_at else None,
         })
 
 
 # ----- B7: cue cards ----- #
 
+def _recently_consumed_card_ids(user, days: int = 30) -> set:
+    """Return cue card ids the user has used in the last `days` days. F8."""
+    from datetime import timedelta
+    from django.utils import timezone as _tz
+    from apps.practice.models import CueCardConsumption
+    cutoff = _tz.now() - timedelta(days=days)
+    return set(
+        CueCardConsumption.objects.filter(
+            user=user, used_at__gte=cutoff,
+        ).values_list("cue_card_id", flat=True)
+    )
+
+
 class CueCardListView(APIView):
-    """GET /speaking/cue-cards — global cards + own institute's, filterable."""
+    """GET /speaking/cue-cards — global cards + own institute's, filterable.
+
+    F8: ?fresh=true excludes cards the user has used in the last 30 days.
+    Adds `consumed_at` per card so the FE can render a small "last used"
+    label without a second query.
+    """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from django.db.models import Q
+        from apps.practice.models import CueCardConsumption
         qs = CueCard.objects.filter(is_active=True).filter(
             Q(institute__isnull=True) | Q(institute=request.user.institute)
         ).order_by("category", "topic")
         category = request.query_params.get("category")
         difficulty = request.query_params.get("difficulty")
+        fresh_only = request.query_params.get("fresh") == "true"
         if category:
             qs = qs.filter(category=category)
         if difficulty:
             qs = qs.filter(difficulty=difficulty)
-        cards = [
-            {
+
+        # Build a {cue_card_id: most_recent_used_at} map. The order_by
+        # ensures the latest row per card lands first, and dict() keeps
+        # the first occurrence per key.
+        last_used_map: dict = {}
+        for cid, used_at in (
+            CueCardConsumption.objects.filter(user=request.user)
+            .order_by("cue_card_id", "-used_at")
+            .values_list("cue_card_id", "used_at")
+        ):
+            last_used_map.setdefault(cid, used_at)
+
+        recent = _recently_consumed_card_ids(request.user) if fresh_only else set()
+        cards = []
+        for c in qs[:300]:
+            if fresh_only and c.id in recent:
+                continue
+            cards.append({
                 "id": str(c.id),
                 "topic": c.topic, "bullets": c.bullets,
                 "category": c.category, "difficulty": c.difficulty,
                 "follow_up_questions": c.follow_up_questions,
-            }
-            for c in qs[:200]
-        ]
+                "last_used_at": last_used_map.get(c.id).isoformat() if last_used_map.get(c.id) else None,
+            })
+            if len(cards) >= 200:
+                break
         return Response({"cards": cards, "count": len(cards)})
 
 
 class RandomCueCardView(APIView):
-    """GET /speaking/cue-cards/random?difficulty=medium — pick one card."""
+    """GET /speaking/cue-cards/random?difficulty=medium&fresh=true — pick one card.
+    Honours the F8 fresh filter so a daily user doesn't keep getting the same
+    card."""
 
     permission_classes = [IsAuthenticated]
 
@@ -165,6 +260,8 @@ class RandomCueCardView(APIView):
         difficulty = request.query_params.get("difficulty")
         if difficulty:
             qs = qs.filter(difficulty=difficulty)
+        if request.query_params.get("fresh") == "true":
+            qs = qs.exclude(id__in=_recently_consumed_card_ids(request.user))
         ids = list(qs.values_list("id", flat=True))
         if not ids:
             return Response({"card": None})
@@ -475,10 +572,31 @@ class WhisperHintView(APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "ai_generate"
 
+    # B1.7: cap so a student can't burn arbitrary Gemini calls / inflate
+    # their fluency band by leaning on hints every other turn. The
+    # canonical counter lives on the session row (mirrored to mock_state
+    # for backward compat); the analyzer prompt sees the count too so
+    # grading is honest.
+    HINTS_PER_SESSION_CAP = 5
+
     def post(self, request, session_id):
         session = _user_session(request, session_id)
         s = _WhisperInput(data=request.data)
         s.is_valid(raise_exception=True)
+        used = int(getattr(session, "whisper_hints_used", 0) or 0)
+        if used >= self.HINTS_PER_SESSION_CAP:
+            return Response(
+                {
+                    "detail": (
+                        f"You've used your {self.HINTS_PER_SESSION_CAP} whisper hints "
+                        f"for this session. Try the answer on your own — even a "
+                        f"halting attempt teaches the rubric more than a hint can."
+                    ),
+                    "uses": used,
+                    "cap": self.HINTS_PER_SESSION_CAP,
+                },
+                status=429,
+            )
         hint = ai_service.whisper_hint(
             question=s.validated_data["last_question"],
             so_far=s.validated_data.get("user_so_far", ""),
@@ -486,12 +604,107 @@ class WhisperHintView(APIView):
             target_band=float(request.user.target_score or 7.0),
             ctx=build_for_user(request.user),
         )
-        # Track usage on session.mock_state for transparency.
+        session.whisper_hints_used = used + 1
+        # Mirror to mock_state for FE that's still reading from there.
         state = session.mock_state or {}
-        state["whisper_hints_used"] = state.get("whisper_hints_used", 0) + 1
+        state["whisper_hints_used"] = session.whisper_hints_used
         session.mock_state = state
-        session.save(update_fields=["mock_state"])
-        return Response({"hint": hint, "uses": state["whisper_hints_used"]})
+        session.save(update_fields=["whisper_hints_used", "mock_state"])
+        return Response({
+            "hint": hint,
+            "uses": session.whisper_hints_used,
+            "remaining": max(0, self.HINTS_PER_SESSION_CAP - session.whisper_hints_used),
+        })
+
+
+# ----- F7: partial-band trajectory ----- #
+
+
+class _PartialBandInput(serializers.Serializer):
+    transcript_so_far = serializers.CharField(min_length=20, max_length=20000)
+
+
+class PartialBandView(APIView):
+    """POST /speaking/sessions/<id>/partial-band — rolling mid-session band
+    estimate. Cached for 30s per session so the FE can poll without burning
+    Gemini calls."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "ai_generate"
+
+    def post(self, request, session_id):
+        from django.core.cache import cache
+        session = _user_session(request, session_id)
+        s = _PartialBandInput(data=request.data)
+        s.is_valid(raise_exception=True)
+        cache_key = f"partial_band:{session.id}"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
+        result = ai_service.estimate_partial_band(
+            transcript_so_far=s.validated_data["transcript_so_far"],
+            target_band=float(request.user.target_score or 7.0),
+            ctx=build_for_user(request.user),
+        )
+        cache.set(cache_key, result, 30)
+        return Response(result)
+
+
+# ----- F4: session bookmarks ----- #
+
+
+class _BookmarkInput(serializers.Serializer):
+    transcript_index = serializers.IntegerField(min_value=0, max_value=10000)
+    note = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
+
+
+class SessionBookmarkView(APIView):
+    """POST /speaking/sessions/<id>/bookmarks — flag the current transcript
+    turn so the post-session review surfaces it first.
+
+    Cheap, no AI cost. The point is the post-session experience: showing
+    a "you flagged 3 moments" panel above the rest of the analysis.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        session = _user_session(request, session_id)
+        s = _BookmarkInput(data=request.data)
+        s.is_valid(raise_exception=True)
+        from apps.practice.models import SessionBookmark
+        bookmark = SessionBookmark.objects.create(
+            user=request.user,
+            institute=request.user.institute,
+            session=session,
+            transcript_index=s.validated_data["transcript_index"],
+            note=s.validated_data.get("note", ""),
+        )
+        return Response({
+            "id": str(bookmark.id),
+            "transcript_index": bookmark.transcript_index,
+            "note": bookmark.note,
+            "created_at": bookmark.created_at.isoformat(),
+        }, status=201)
+
+    def get(self, request, session_id):
+        session = _user_session(request, session_id)
+        from apps.practice.models import SessionBookmark
+        rows = list(
+            SessionBookmark.objects.filter(session=session).order_by("transcript_index")
+        )
+        return Response({
+            "bookmarks": [
+                {
+                    "id": str(b.id),
+                    "transcript_index": b.transcript_index,
+                    "note": b.note,
+                    "created_at": b.created_at.isoformat(),
+                }
+                for b in rows
+            ],
+        })
 
 
 # ----- E3: band-7 rephrase ----- #

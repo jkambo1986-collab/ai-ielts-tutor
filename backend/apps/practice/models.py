@@ -76,10 +76,12 @@ class SpeakingSession(PracticeSessionBase):
     MODE_STANDARD = "Standard"
     MODE_ROLEPLAY = "RolePlay"
     MODE_MOCK = "Mock"  # B1: structured 3-part mock test
+    MODE_WARMUP = "Warmup"  # F6: first 60s unmarked then rubric kicks in
     MODE_CHOICES = [
         (MODE_STANDARD, "Standard"),
         (MODE_ROLEPLAY, "Role Play"),
         (MODE_MOCK, "Mock Test"),
+        (MODE_WARMUP, "Warm-up"),
     ]
 
     PART_PART1 = "part1"
@@ -138,6 +140,12 @@ class SpeakingSession(PracticeSessionBase):
     examiner_notes = models.JSONField(default=list, blank=True)
     # B2: cue card used (when applicable). Snapshot stored so re-prompt is stable.
     cue_card = models.JSONField(null=True, blank=True)
+    # F1: live token freshness. Backend writes this when minting; FE refreshes
+    # via /reconnect at TTL - 60s. Long mock tests (25+ min) outlived the
+    # token's silent default and silently 401'd mid-session before this.
+    live_token_expires_at = models.DateTimeField(null=True, blank=True)
+    # B1.7: hint usage so the analyzer can grade honestly.
+    whisper_hints_used = models.PositiveIntegerField(default=0)
 
     class Meta(PracticeSessionBase.Meta):
         db_table = "practice_speaking_session"
@@ -769,6 +777,58 @@ class DailyChallenge(models.Model):
         ]
         indexes = [
             models.Index(fields=["user", "-challenge_date"]),
+        ]
+
+
+class SessionBookmark(models.Model):
+    """Mid-session bookmark on a speaking session (F4).
+
+    Student taps a button mid-conversation; we mark the current transcript
+    turn index. Post-session, the bookmarked turns are surfaced first in
+    the review panel ("you flagged 3 moments").
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="speaking_bookmarks")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    session = models.ForeignKey(
+        "SpeakingSession", on_delete=models.CASCADE, related_name="bookmarks",
+    )
+    transcript_index = models.IntegerField(help_text="Index into session.transcript at the time of bookmark.")
+    note = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "practice_session_bookmark"
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["session", "created_at"]),
+            models.Index(fields=["user", "-created_at"]),
+        ]
+
+
+class CueCardConsumption(models.Model):
+    """Per-(user, cue_card) usage stamp (F8).
+
+    Powers the `?fresh=true` filter on cue-card endpoints — a card is
+    "fresh" if the user hasn't used it in the last 30 days. Append-only;
+    re-using a card creates a new row so we can show usage history.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="cue_card_uses")
+    cue_card = models.ForeignKey("CueCard", on_delete=models.CASCADE, related_name="consumptions")
+    speaking_session = models.ForeignKey(
+        "SpeakingSession", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+    used_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "practice_cue_card_consumption"
+        ordering = ["-used_at"]
+        indexes = [
+            models.Index(fields=["user", "-used_at"]),
+            models.Index(fields=["user", "cue_card"]),
         ]
 
 

@@ -543,3 +543,25 @@ BAND_DROP_DIAGNOSTIC_SCHEMA = {
     },
     "required": ["headline", "specific_changes", "next_action"],
 }
+
+
+# -- Partial-band rolling estimate (F7) -- #
+
+PARTIAL_BAND_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "rolling_band": {
+            "type": "number",
+            "description": "Low-confidence band 1.0-9.0 from text-so-far.",
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["very_low", "low", "medium"],
+        },
+        "one_word_signal": {
+            "type": "string",
+            "description": "One word the FE can show under the ring, e.g. 'fluent', 'hesitant', 'concise'.",
+        },
+    },
+    "required": ["rolling_band", "confidence"],
+}

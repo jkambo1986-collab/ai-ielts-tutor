@@ -84,6 +84,18 @@ def compute_fluency(transcript: list[dict], duration_seconds: int) -> dict:
     # Hesitation index: combines filler frequency + pause penalty.
     hesitation_index = round(min(1.0, (filler_per_minute / 8) * 0.6 + (pause_seconds_avg / 6) * 0.4), 3)
 
+    # F2: talking-time breakdown. IELTS speaking expects ~50% student talk
+    # time; the rubric heavily penalises silence and over-AI-led conversations.
+    # We approximate from the transcript: each turn's duration is roughly
+    # (word_count / 150 wpm) which is the natural English speaking rate.
+    # When timestamps are available we use those instead.
+    student_talk_seconds = _approx_speak_seconds(user_turns)
+    ai_turns = [t for t in (transcript or []) if t.get("speaker") in ("model", "ai", "examiner")]
+    ai_talk_seconds = _approx_speak_seconds(ai_turns)
+    total = max(int(duration_seconds or 0), 1)
+    silence_seconds = max(0, total - student_talk_seconds - ai_talk_seconds)
+    student_talk_ratio = round(student_talk_seconds / total, 3) if total else 0.0
+
     return {
         "total_words": total_words,
         "wpm": wpm,
@@ -91,4 +103,26 @@ def compute_fluency(transcript: list[dict], duration_seconds: int) -> dict:
         "filler_per_minute": filler_per_minute,
         "pause_seconds_avg": pause_seconds_avg,
         "hesitation_index": hesitation_index,
+        "student_talk_seconds": student_talk_seconds,
+        "ai_talk_seconds": ai_talk_seconds,
+        "silence_seconds": silence_seconds,
+        "student_talk_ratio": student_talk_ratio,
     }
+
+
+def _approx_speak_seconds(turns: list[dict]) -> int:
+    """Approximate spoken seconds from a list of turns. Prefers explicit
+    `duration_seconds` per turn when present; otherwise word_count/2.5
+    (roughly 150 wpm = 2.5 words/sec)."""
+    total = 0
+    for t in turns:
+        if not isinstance(t, dict):
+            continue
+        d = t.get("duration_seconds")
+        if isinstance(d, (int, float)) and d > 0:
+            total += int(d)
+            continue
+        words = len(WORD_RE.findall(t.get("text", "") or ""))
+        if words:
+            total += int(round(words / 2.5))
+    return total
