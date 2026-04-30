@@ -21,6 +21,10 @@ import { TargetGauge } from './dashboard/charts';
 import ErrorLogPage from './dashboard/ErrorLogPage';
 import Loader from './Loader';
 import CommitmentRing from './ui/CommitmentRing';
+import DailyChallengeCard from './ui/DailyChallengeCard';
+import BadgeGallery from './ui/BadgeGallery';
+import CrashPlanBanner from './ui/CrashPlanBanner';
+import ReadingWpmWidget from './ui/ReadingWpmWidget';
 
 type DaysFilter = 7 | 30 | 'all';
 
@@ -134,20 +138,55 @@ const Dashboard: React.FC = () => {
                     {/* Alerts (#28) */}
                     <AlertsBanner alerts={data.alerts} onDismiss={dismissAlert} onCta={handleAlertCta} />
 
-                    {/* Daily commitment progress ring — visible only when the
-                        student set a commitment during onboarding. */}
-                    {data.daily_commitment && data.daily_commitment.commitment_minutes > 0 && (
-                        <div className="flex justify-end">
+                    {/* Crash plan banner — fires when exam_date within 14 days. */}
+                    {currentUser?.examDate && (() => {
+                        const days = Math.ceil(
+                            (new Date(currentUser.examDate).getTime() - Date.now()) / 86400000,
+                        );
+                        return days >= 0 && days <= 14
+                            ? <CrashPlanBanner daysUntilExam={days} />
+                            : null;
+                    })()}
+
+                    {/* Today's daily challenge. */}
+                    <DailyChallengeCard onAccept={(c) => {
+                        const tabMap: Record<string, IELTSSection | undefined> = {
+                            writing: IELTSSection.Writing,
+                            speaking: IELTSSection.Speaking,
+                            reading: IELTSSection.Reading,
+                            listening: IELTSSection.Listening,
+                        };
+                        if (tabMap[c.skill]) setActiveTab(tabMap[c.skill]!);
+                    }} />
+
+                    {/* Top strip: commitment + WPM widget side-by-side */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {data.daily_commitment && data.daily_commitment.commitment_minutes > 0 ? (
                             <CommitmentRing
                                 minutesToday={data.daily_commitment.minutes_today}
                                 commitmentMinutes={data.daily_commitment.commitment_minutes}
                                 progress={data.daily_commitment.progress}
                             />
-                        </div>
-                    )}
+                        ) : <div />}
+                        {data.reading_wpm && data.reading_wpm.avg_wpm !== null ? (
+                            <ReadingWpmWidget
+                                avgWpm={data.reading_wpm.avg_wpm}
+                                targetWpm={data.reading_wpm.target_wpm_for_band}
+                                samples={data.reading_wpm.samples}
+                            />
+                        ) : <div />}
+                    </div>
 
                     {/* Hero strip (#12 streak, #18 effective time, target) */}
                     <HeroStrip data={data} />
+
+                    {/* Earned badges */}
+                    <Section
+                        title="Achievements"
+                        subtitle="Badges earned for streaks, calibration accuracy, and skill milestones."
+                    >
+                        <BadgeGallery />
+                    </Section>
 
                     {/* Target gauges (#11) */}
                     <Section

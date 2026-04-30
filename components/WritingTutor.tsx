@@ -118,6 +118,9 @@ const WritingTutor: React.FC = () => {
   // ReattemptDiffStrip after the result lands).
   const [diffOriginalId, setDiffOriginalId] = useState<string | null>(null);
   const [diffReattemptId, setDiffReattemptId] = useState<string | null>(null);
+  // One Skill Retake toggle — when on, the AI returns an osrDiagnostic
+  // block with concrete moves to lift the band by 0.5.
+  const [osrMode, setOsrMode] = useState<boolean>(false);
 
   const autosaveStatus = useAutosave(
       essay,
@@ -281,6 +284,7 @@ const WritingTutor: React.FC = () => {
           durationSeconds,
           predictedBand: predicted,
           parentSessionId,
+          osr: osrMode,
         },
       );
 
@@ -508,6 +512,20 @@ const WritingTutor: React.FC = () => {
                 Drafts
             </button>
             <div className="flex items-center space-x-4">
+              {/* OSR Toggle — One Skill Retake practice mode */}
+              <div className="flex items-center space-x-2" title="Retaking only Writing on the official exam? Get a focused 'what would change your band' diagnostic.">
+                <label htmlFor="osr-toggle" className="text-sm font-medium text-slate-600 dark:text-slate-400 cursor-pointer">OSR</label>
+                <button
+                    role="switch"
+                    aria-checked={osrMode}
+                    onClick={() => setOsrMode(v => !v)}
+                    disabled={isLoading || !!feedback}
+                    id="osr-toggle"
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${osrMode ? 'bg-rose-600' : 'bg-gray-200 dark:bg-slate-700'}`}
+                >
+                    <span aria-hidden="true" className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${osrMode ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
               {/* Exam Mode Toggle */}
               <div className="flex items-center space-x-2">
                 <label htmlFor="exam-mode-toggle" className="text-sm font-medium text-slate-600 dark:text-slate-400 cursor-pointer">Exam Mode</label>

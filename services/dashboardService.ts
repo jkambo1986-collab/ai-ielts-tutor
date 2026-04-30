@@ -43,6 +43,14 @@ export interface DashboardPayload {
         progress: number | null;
     };
 
+    /** Reading words-per-minute trend + per-band target. Null when no usable
+     * sessions exist (passage too short or no duration tracked). */
+    reading_wpm: {
+        avg_wpm: number | null;
+        samples: { wpm: number; at: string }[];
+        target_wpm_for_band: number | null;
+    };
+
     vocabulary: { unique_total: number; unique_b2_plus: number; awl_total: number; added_this_period: number | null };
 
     calibration: { samples: number; avg_delta: number | null };
@@ -161,6 +169,24 @@ export interface StreakSnapshot {
     just_broken: boolean;
 }
 
+export interface DailyChallenge {
+    id: string;
+    date: string;
+    skill: 'writing' | 'speaking' | 'reading' | 'listening';
+    prompt: string;
+    completed_at: string | null;
+    session_id: string | null;
+}
+
+export interface BadgeRow {
+    id: string;
+    code: string;
+    title: string;
+    description: string;
+    awarded_at: string;
+    payload: Record<string, unknown>;
+}
+
 export interface WarmupPayload {
     due_srs_count: number;
     due_categories: { category: string; count: number }[];
@@ -254,6 +280,17 @@ export const dashboardService = {
         const qs = sessionType ? `?session_type=${sessionType}` : '';
         return apiClient.get<WarmupPayload>(`/analytics/warmup${qs}`);
     },
+
+    fetchDailyChallenge: () => apiClient.get<DailyChallenge>('/analytics/daily-challenge'),
+    completeDailyChallenge: (sessionId?: string) =>
+        apiClient.post<DailyChallenge>('/analytics/daily-challenge', { session_id: sessionId }),
+
+    fetchBadges: () => apiClient.get<{ badges: BadgeRow[]; count: number }>('/analytics/badges'),
+
+    fetchCrashStudyPlan: () =>
+        apiClient.post<{ plan: unknown; crash_mode: boolean; days_until_exam: number | null }>(
+            '/analytics/study-plan?mode=crash', {},
+        ),
 
     fetchStudyPlanLatest: () =>
         apiClient.get<{ plan: { id: string; plan: { plan: { day: number; focus: string; task: string }[] }; is_active: boolean; created_at: string } | null }>(

@@ -86,6 +86,9 @@ export interface EvaluateWritingExtras {
     durationSeconds?: number;
     predictedBand?: number | null;
     parentSessionId?: string | null;
+    /** One Skill Retake — when true the AI appends an osrDiagnostic block
+     * with currentBand, gapToTarget, and topThreeMoves. */
+    osr?: boolean;
 }
 
 export const evaluateWriting = async (
@@ -109,6 +112,7 @@ export const evaluateWriting = async (
                 duration_seconds: extras.durationSeconds ?? 0,
                 predicted_band: extras.predictedBand ?? null,
                 parent_session_id: extras.parentSessionId ?? null,
+                osr: extras.osr ?? false,
             },
         );
         return {
