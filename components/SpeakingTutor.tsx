@@ -10,6 +10,9 @@ import Card from './Card';
 import Button from './Button';
 import { SpeakingSessionSummary, SpeakingAnalysis, SpeakingFeedbackPoint, Turn, PronunciationDetail, SubscriptionPlan, ContextualSpeakingPrompt, IELTSSection } from '../types';
 import { analyzeSpeakingPerformance, endSpeakingSession, generateContextualSpeakingPrompts, startSpeakingSession } from '../services/geminiService';
+import { useToast } from './ui/Toast';
+import WarmupBanner from './ui/WarmupBanner';
+import CrossSkillChip from './ui/CrossSkillChip';
 import { calculateSpeakingSkill } from '../services/adaptiveLearningService';
 import Loader from './Loader';
 import { AlertTriangleIcon, MicOffIcon, PowerIcon, SpeakingIcon as MicIcon } from './Icons';
@@ -172,16 +175,17 @@ const StatusIndicator: React.FC<{ state: ConnectionState }> = ({ state }) => {
  * The main component for the Speaking Tutor.
  */
 const SpeakingTutor: React.FC = () => {
-  const { 
-    currentUser: userProfile, 
-    speakingHistory, 
-    readingHistory, 
-    listeningHistory, 
+  const {
+    currentUser: userProfile,
+    speakingHistory,
+    readingHistory,
+    listeningHistory,
     addSpeakingSession,
     clearSpeakingHistory,
     targetedPractice,
     setTargetedPractice
   } = useAppContext();
+  const { toast, update: updateToast } = useToast();
   // Component State
   const [connectionState, setConnectionState] = useState<ConnectionState>('IDLE');
   const [conversation, setConversation] = useState<Turn[]>([]);
@@ -684,31 +688,48 @@ Target Band Score: ${difficultyScore.toFixed(1)}`;
 
     setAnalyzingSessionId(sessionId);
     setError(null);
+    const progressId = toast({ title: 'Analyzing your speaking…', body: 'Examiner pass over your transcript.', kind: 'info', durationMs: 60000 });
     try {
         const userTranscript = sessionToAnalyze.transcript
             .filter(turn => turn.speaker === 'user')
             .map(turn => turn.text)
             .join(' ');
-        
+
         if (!userTranscript.trim()) {
             throw new Error("No user speech was detected in this session to analyze.");
         }
-        
+
         const mode = sessionToAnalyze.mode || 'Standard';
         // Pass the backend session id so the analysis is persisted on the row.
         // The session id is the backend UUID set in stopSession (or a local
         // ISO-string fallback if backend persistence failed at end-time).
         const sessionIdForBackend = /^[0-9a-f-]{36}$/i.test(sessionId) ? sessionId : undefined;
-        const feedback = await analyzeSpeakingPerformance(userTranscript, mode, sessionIdForBackend);
-        
+        const { analysis: feedback, cardsAdded } = await analyzeSpeakingPerformance(userTranscript, mode, sessionIdForBackend);
+
         // Create an updated session object with the new analysis
         const updatedSession = { ...sessionToAnalyze, speakingAnalysis: feedback };
-        
+
         // Use the context's add function, which handles updates
         addSpeakingSession(updatedSession);
-        
+
+        if (cardsAdded > 0) {
+            updateToast(progressId, {
+                title: `Analysis ready · ${cardsAdded} review card${cardsAdded === 1 ? '' : 's'} added`,
+                body: 'Find them under SRS in your dashboard.',
+                kind: 'success',
+                durationMs: 5000,
+            });
+        } else {
+            updateToast(progressId, { title: 'Analysis ready', kind: 'success', durationMs: 2500 });
+        }
     } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to get performance analysis.");
+        updateToast(progressId, {
+            title: 'Could not analyze',
+            body: err instanceof Error ? err.message : '',
+            kind: 'error',
+            durationMs: 5000,
+        });
     } finally {
         setAnalyzingSessionId(null);
     }
@@ -810,6 +831,13 @@ Target Band Score: ${difficultyScore.toFixed(1)}`;
 
   return (
     <>
+      {connectionState === 'IDLE' && <WarmupBanner sessionType="speaking" />}
+      {connectionState === 'IDLE' && (
+        <CrossSkillChip
+          mode="speaking"
+          onSelect={() => { /* speaking starts via mode buttons; chip just nudges the topic */ }}
+        />
+      )}
       <Card>
         <div className="flex flex-col items-center mb-6">
             <h2 className="text-2xl font-bold mb-2">Speaking Practice</h2>

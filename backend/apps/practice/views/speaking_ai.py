@@ -188,8 +188,9 @@ class EndSessionView(APIView):
         session.save()
 
         # Auto-extract SRS error cards from analysis — best-effort.
+        new_cards = []
         if analysis:
-            extract_from_speaking_analysis(
+            new_cards = extract_from_speaking_analysis(
                 user=request.user,
                 institute=request.user.institute,
                 session_id=session.id,
@@ -255,6 +256,7 @@ class EndSessionView(APIView):
                 "duration_seconds": session.duration_seconds,
                 "fluency_metrics": session.fluency_metrics,
                 "quality_score": session.quality_score,
+                "cards_added": len(new_cards),
             }
         )
 
@@ -301,14 +303,21 @@ class AnalyzeTranscriptView(APIView):
             session.analysis = analysis
             session.save(update_fields=["analysis"])
             # Auto-extract SRS error cards — best-effort, only when we have a session.
-            extract_from_speaking_analysis(
+            new_cards = extract_from_speaking_analysis(
                 user=request.user,
                 institute=request.user.institute,
                 session_id=session.id,
                 analysis=analysis,
             )
+            cards_added = len(new_cards)
+        else:
+            cards_added = 0
 
-        return Response({"analysis": analysis, "session_id": str(sid) if sid else None})
+        return Response({
+            "analysis": analysis,
+            "session_id": str(sid) if sid else None,
+            "cards_added": cards_added,
+        })
 
 
 class ContextualSpeakingPromptsView(APIView):

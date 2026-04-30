@@ -28,6 +28,13 @@ interface ToastItem extends Required<Omit<ToastInput, 'undo' | 'body'>> {
 interface Ctx {
     toast: (t: ToastInput) => string;
     dismiss: (id: string) => void;
+    /**
+     * Replace an existing toast in-place — used for two-stage progress
+     * notifications (e.g. "Submitting…" → "Analyzing…" → "Done"). If the
+     * toast no longer exists (e.g. user dismissed it), this is a no-op.
+     * Resets the auto-dismiss timer with the new duration.
+     */
+    update: (id: string, t: Partial<ToastInput>) => void;
 }
 
 const ToastContext = createContext<Ctx | null>(null);
@@ -61,8 +68,34 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return id;
     }, [dismiss]);
 
+    const update = useCallback((id: string, t: Partial<ToastInput>) => {
+        setItems(prev => {
+            const idx = prev.findIndex(x => x.id === id);
+            if (idx < 0) return prev;
+            const merged: ToastItem = {
+                ...prev[idx],
+                title: t.title ?? prev[idx].title,
+                body: t.body !== undefined ? t.body : prev[idx].body,
+                kind: t.kind ?? prev[idx].kind,
+                durationMs: t.durationMs ?? prev[idx].durationMs,
+                undo: t.undo !== undefined ? t.undo : prev[idx].undo,
+            };
+            const copy = [...prev];
+            copy[idx] = merged;
+            return copy;
+        });
+        // Reset the auto-dismiss timer so the updated message gets its
+        // full duration; otherwise a 3.5s "Submitting…" would close right
+        // as it became "Analyzing…".
+        const old = timers.current.get(id);
+        if (old) clearTimeout(old);
+        const ms = t.durationMs ?? 3500;
+        const handle = window.setTimeout(() => dismiss(id), ms);
+        timers.current.set(id, handle);
+    }, [dismiss]);
+
     return (
-        <ToastContext.Provider value={{ toast, dismiss }}>
+        <ToastContext.Provider value={{ toast, dismiss, update }}>
             {children}
             <Toaster items={items} dismiss={dismiss} />
         </ToastContext.Provider>
@@ -76,6 +109,7 @@ export function useToast(): Ctx {
         return {
             toast: (t) => { console.info('[toast]', t.title, t.body ?? ''); return ''; },
             dismiss: () => undefined,
+            update: () => undefined,
         };
     }
     return ctx;

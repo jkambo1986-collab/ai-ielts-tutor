@@ -162,6 +162,32 @@ def _speaking_part_split(sessions) -> dict:
     }
 
 
+def _compute_daily_commitment(user) -> dict:
+    """Today's practice minutes (sum across all four session types) plus the
+    user's onboarding commitment. The FE renders a progress ring + a late-day
+    nudge banner from this single payload, so we keep it compact."""
+    today = timezone.localtime(timezone.now()).date()
+    start = timezone.make_aware(datetime.combine(today, datetime.min.time()))
+    end = start + timedelta(days=1)
+    total_seconds = 0
+    for model in (WritingSession, SpeakingSession, ReadingSession, ListeningSession):
+        qs = model.objects.filter(
+            user=user, deleted_at__isnull=True,
+            created_at__gte=start, created_at__lt=end,
+        )
+        # `duration_seconds` is on every session type; missing rows give 0.
+        agg = qs.aggregate(total=Sum("duration_seconds"))
+        total_seconds += int(agg.get("total") or 0)
+    minutes_today = round(total_seconds / 60, 1)
+    commitment = getattr(user, "daily_commitment_minutes", None) or 0
+    return {
+        "minutes_today": minutes_today,
+        "commitment_minutes": int(commitment),
+        # 0..1 ratio; capped at 1 so the ring doesn't overflow visually.
+        "progress": min(1.0, minutes_today / commitment) if commitment > 0 else None,
+    }
+
+
 class DashboardAnalyticsView(APIView):
     """GET /api/v1/analytics/dashboard?days=7|30|all — single rich payload."""
 
@@ -406,6 +432,10 @@ class DashboardAnalyticsView(APIView):
             # Quality + effective time (#18)
             "quality": quality,
             "effective_practice_minutes": round(effective_practice_seconds / 60, 1),
+
+            # Daily commitment progress — minutes practised TODAY (local date)
+            # vs the user's onboarding commitment. Powers the FE progress ring.
+            "daily_commitment": _compute_daily_commitment(user),
 
             # Vocab (#19)
             "vocabulary": vocab_stats,

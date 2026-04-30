@@ -94,7 +94,7 @@ class EvaluateWritingView(APIView):
         # Auto-extract SRS error cards from feedback — best-effort.
         # Without this the SRS queue stays empty for nearly all real users
         # because there's no UI flow that asks "save this as a card?".
-        extract_from_writing_feedback(
+        new_cards = extract_from_writing_feedback(
             user=request.user,
             institute=request.user.institute,
             session_id=session.id,
@@ -131,7 +131,12 @@ class EvaluateWritingView(APIView):
             pass
 
         return Response(
-            {"session_id": str(session.id), "feedback": feedback, "band_score": session.band_score},
+            {
+                "session_id": str(session.id),
+                "feedback": feedback,
+                "band_score": session.band_score,
+                "cards_added": len(new_cards),
+            },
             status=status.HTTP_201_CREATED,
         )
 

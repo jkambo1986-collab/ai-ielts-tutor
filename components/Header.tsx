@@ -7,6 +7,8 @@ import React from 'react';
 import { SubscriptionPlan } from '../types';
 import { UserIcon } from './Icons';
 import { useAppContext } from '../App';
+import StreakPill from './ui/StreakPill';
+import NotificationBell from './ui/NotificationBell';
 
 /**
  * The main header component.
@@ -32,7 +34,9 @@ const Header: React.FC = () => {
             </svg>
             <span className="text-xl font-bold text-slate-800 dark:text-slate-200">AI IELTS Tutor</span>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
+              <StreakPill />
+              <NotificationBell />
               <div className="flex items-center space-x-2">
                   <UserIcon className="h-6 w-6 text-slate-500" />
                   <span className="font-semibold text-slate-700 dark:text-slate-300 hidden sm:block">{user.name}</span>

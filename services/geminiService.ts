@@ -93,9 +93,13 @@ export const evaluateWriting = async (
     essay: string,
     targetScore: number | null,
     extras: EvaluateWritingExtras = {},
-): Promise<{ feedback: WritingFeedback; sessionId: string }> =>
+): Promise<{ feedback: WritingFeedback; sessionId: string; cardsAdded: number }> =>
     callApi(async () => {
-        const data = await apiClient.post<{ session_id: string; feedback: WritingFeedback }>(
+        const data = await apiClient.post<{
+            session_id: string;
+            feedback: WritingFeedback;
+            cards_added?: number;
+        }>(
             '/writing/evaluate',
             {
                 prompt,
@@ -107,7 +111,11 @@ export const evaluateWriting = async (
                 parent_session_id: extras.parentSessionId ?? null,
             },
         );
-        return { feedback: data.feedback, sessionId: data.session_id };
+        return {
+            feedback: data.feedback,
+            sessionId: data.session_id,
+            cardsAdded: data.cards_added ?? 0,
+        };
     });
 
 export const generateEssayPlan = async (prompt: string, userIdeas: string): Promise<EssayPlan> =>
@@ -241,15 +249,15 @@ export const analyzeSpeakingPerformance = async (
     transcript: string,
     mode: 'Standard' | 'RolePlay' = 'Standard',
     sessionId?: string,
-): Promise<SpeakingAnalysis> =>
+): Promise<{ analysis: SpeakingAnalysis; cardsAdded: number }> =>
     callApi(async () => {
         const body: Record<string, unknown> = { transcript, mode };
         if (sessionId) body.session_id = sessionId;
-        const data = await apiClient.post<{ analysis: SpeakingAnalysis }>(
+        const data = await apiClient.post<{ analysis: SpeakingAnalysis; cards_added?: number }>(
             '/speaking/analyze-transcript',
             body,
         );
-        return data.analysis;
+        return { analysis: data.analysis, cardsAdded: data.cards_added ?? 0 };
     });
 
 export const generateContextualSpeakingPrompts = async (
@@ -318,7 +326,12 @@ export const endSpeakingSession = async (
     transcript: { speaker: string; text: string; timestamp: string }[],
     durationSeconds: number,
     skipAnalysis = false,
-): Promise<{ session_id: string; analysis: SpeakingAnalysis | null; duration_seconds: number }> =>
+): Promise<{
+    session_id: string;
+    analysis: SpeakingAnalysis | null;
+    duration_seconds: number;
+    cards_added?: number;
+}> =>
     callApi(() =>
         apiClient.post('/speaking/end-session', {
             session_id: sessionId,

@@ -13,6 +13,7 @@ import { calculateReadingSkill } from '../services/adaptiveLearningService';
 import { ReadingTest, ReadingQuestion, AnswerEvaluation, ReadingSessionSummary, ReadingTestType } from '../types';
 import { useAppContext } from '../App';
 import { ClockIcon, ReadingIcon, SearchIcon } from './Icons';
+import WarmupBanner from './ui/WarmupBanner';
 
 interface ReadingTutorProps {}
 
@@ -199,6 +200,8 @@ const ReadingTutor: React.FC<ReadingTutorProps> = () => {
   // Render test selection screen if no test is active
   if (!test) {
     return (
+      <>
+        <WarmupBanner sessionType="reading" />
         <Card>
             <div className="text-center">
                 <h2 className="text-2xl font-bold mb-4">Reading Practice</h2>
@@ -248,6 +251,7 @@ const ReadingTutor: React.FC<ReadingTutorProps> = () => {
                 </div>
             </div>
       </Card>
+      </>
     );
   }
 

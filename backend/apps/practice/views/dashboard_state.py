@@ -249,6 +249,21 @@ class ErrorCardReviewView(APIView):
         return Response(ErrorCardSerializer(card).data)
 
 
+# -- Streak status -- #
+
+class StreakView(APIView):
+    """GET /api/v1/analytics/streak — compact streak snapshot for the header pill.
+
+    Returns the same shape as compute_streak() so the FE can light up the
+    pill (alive / at-risk / broken) without hitting the full dashboard payload.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.practice.services.streaks import compute_streak
+        return Response(compute_streak(request.user))
+
+
 # -- Pre-session SRS warmup -- #
 
 class WarmupView(APIView):

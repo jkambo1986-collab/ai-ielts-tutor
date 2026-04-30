@@ -20,6 +20,7 @@ import {
 import { TargetGauge } from './dashboard/charts';
 import ErrorLogPage from './dashboard/ErrorLogPage';
 import Loader from './Loader';
+import CommitmentRing from './ui/CommitmentRing';
 
 type DaysFilter = 7 | 30 | 'all';
 
@@ -132,6 +133,18 @@ const Dashboard: React.FC = () => {
                 <>
                     {/* Alerts (#28) */}
                     <AlertsBanner alerts={data.alerts} onDismiss={dismissAlert} onCta={handleAlertCta} />
+
+                    {/* Daily commitment progress ring — visible only when the
+                        student set a commitment during onboarding. */}
+                    {data.daily_commitment && data.daily_commitment.commitment_minutes > 0 && (
+                        <div className="flex justify-end">
+                            <CommitmentRing
+                                minutesToday={data.daily_commitment.minutes_today}
+                                commitmentMinutes={data.daily_commitment.commitment_minutes}
+                                progress={data.daily_commitment.progress}
+                            />
+                        </div>
+                    )}
 
                     {/* Hero strip (#12 streak, #18 effective time, target) */}
                     <HeroStrip data={data} />

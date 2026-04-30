@@ -11,6 +11,11 @@ import Loader from './Loader';
 import { evaluateWriting, generateEssayPlan, analyzeCohesion, generateContextualWritingPrompts, generatePracticeForVocabulary } from '../services/geminiService';
 import ConfidenceModal from './dashboard/ConfidenceModal';
 import { uxService } from '../services/uxService';
+import { useToast } from './ui/Toast';
+import WarmupBanner from './ui/WarmupBanner';
+import CrossSkillChip from './ui/CrossSkillChip';
+import CalibrationBadge from './ui/CalibrationBadge';
+import ReattemptDiffStrip from './ui/ReattemptDiffStrip';
 import { useAutosave } from '../services/autosaveHook';
 import SaveIndicator from './ui/SaveIndicator';
 import NextStepBridge from './ui/NextStepBridge';
@@ -101,6 +106,7 @@ const WritingTutor: React.FC = () => {
       setActiveTab,
       setTargetedPractice 
   } = useAppContext();
+  const { toast, update: updateToast } = useToast();
   // Component State
   const [prompt, setPrompt] = useState<string>('');
   const [essay, setEssay] = useState<string>('');
@@ -108,6 +114,10 @@ const WritingTutor: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [drafts, setDrafts] = useState<{ prompt_hash: string; prompt: string; essay: string; word_count: number; updated_at: string }[]>([]);
+  // Snapshot of the parent session id active at submission time (used to render
+  // ReattemptDiffStrip after the result lands).
+  const [diffOriginalId, setDiffOriginalId] = useState<string | null>(null);
+  const [diffReattemptId, setDiffReattemptId] = useState<string | null>(null);
 
   const autosaveStatus = useAutosave(
       essay,
@@ -246,9 +256,13 @@ const WritingTutor: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setFeedback(null);
+    setDiffOriginalId(null);
+    setDiffReattemptId(null);
     if (isExamMode) {
       setWasExamModeActive(true);
     }
+    // Two-stage progress toast — replaces the silent "press button, wait" UX.
+    const progressId = toast({ title: 'Submitting essay…', kind: 'info', durationMs: 60000 });
     try {
       const difficultyScore = getDifficultyScore();
       // Pull a re-attempt parent (#21) if the user marked one from the dashboard.
@@ -256,7 +270,9 @@ const WritingTutor: React.FC = () => {
       try { parentSessionId = localStorage.getItem('reattempt_parent_writing'); } catch { /* ignore */ }
       const durationSeconds = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
 
-      const { feedback: result, sessionId } = await evaluateWriting(
+      updateToast(progressId, { title: 'Analyzing your writing…', body: 'IELTS examiner pass in progress.', durationMs: 60000 });
+
+      const { feedback: result, sessionId, cardsAdded } = await evaluateWriting(
         prompt,
         essay,
         difficultyScore,
@@ -271,6 +287,25 @@ const WritingTutor: React.FC = () => {
       // Re-attempt is consumed; clear the localStorage flag.
       if (parentSessionId) {
         try { localStorage.removeItem('reattempt_parent_writing'); } catch { /* ignore */ }
+        setDiffOriginalId(parentSessionId);
+        setDiffReattemptId(sessionId);
+      }
+
+      // Final stage: success message; if the auto-extractor created cards,
+      // tell the user instead of leaving it silent.
+      if (cardsAdded && cardsAdded > 0) {
+        updateToast(progressId, {
+          title: `Feedback ready · ${cardsAdded} review card${cardsAdded === 1 ? '' : 's'} added`,
+          body: 'Find them under SRS in your dashboard.',
+          kind: 'success',
+          durationMs: 5000,
+        });
+      } else {
+        updateToast(progressId, {
+          title: 'Feedback ready',
+          kind: 'success',
+          durationMs: 2500,
+        });
       }
 
       // Add a logical check to ensure the response object has the expected structure
@@ -291,6 +326,12 @@ const WritingTutor: React.FC = () => {
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred. Please try again.');
+      updateToast(progressId, {
+        title: 'Could not get feedback',
+        body: err instanceof Error ? err.message : '',
+        kind: 'error',
+        durationMs: 5000,
+      });
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -448,6 +489,10 @@ const WritingTutor: React.FC = () => {
         onConfirm={(b) => runEvaluation(b)}
         onSkip={() => runEvaluation(null)}
       />
+      {!feedback && <WarmupBanner sessionType="writing" />}
+      {!feedback && !essay.trim() && (
+        <CrossSkillChip mode="writing" onSelect={(p) => setPrompt(p)} />
+      )}
       <Card className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left side: Prompt, Essay Input/Display */}
         <div>
@@ -612,9 +657,17 @@ const WritingTutor: React.FC = () => {
             {cohesionError && <div role="alert" className="text-red-500 text-center p-4">{cohesionError}</div>}
             {feedback && (
               <div className="space-y-6">
+                {diffOriginalId && diffReattemptId && (
+                  <ReattemptDiffStrip
+                    kind="writing"
+                    originalId={diffOriginalId}
+                    reattemptId={diffReattemptId}
+                  />
+                )}
                 <div className="text-center bg-blue-100 dark:bg-blue-900/50 p-4 rounded-lg">
                   <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">ESTIMATED BAND SCORE</p>
                   <p className="text-5xl font-bold text-blue-600 dark:text-blue-400">{feedback.bandScore.toFixed(1)}</p>
+                  <CalibrationBadge predicted={predictedBand} actual={feedback.bandScore} />
                 </div>
 
                 {/* Render feedback for each criterion */}

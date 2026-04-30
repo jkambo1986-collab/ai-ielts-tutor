@@ -14,6 +14,7 @@ import { calculateListeningSkill } from '../services/adaptiveLearningService';
 import { ListeningTest, ListeningQuestion, ListeningSessionSummary, AnswerEvaluation, ListeningTestType } from '../types';
 import { useAppContext } from '../App';
 import { ReadingIcon, SpeakingIcon, UserIcon } from './Icons';
+import WarmupBanner from './ui/WarmupBanner';
 
 type PlaybackState = 'IDLE' | 'PLAYING' | 'PAUSED' | 'ENDED';
 
@@ -337,6 +338,8 @@ const ListeningTutor: React.FC<ListeningTutorProps> = () => {
   
   if (!test) {
     return (
+      <>
+        <WarmupBanner sessionType="listening" />
         <Card>
             <div className="text-center">
                 <h2 className="text-2xl font-bold mb-4">Listening Practice</h2>
@@ -383,6 +386,7 @@ const ListeningTutor: React.FC<ListeningTutorProps> = () => {
                 </div>
             </div>
       </Card>
+      </>
     );
   }
 

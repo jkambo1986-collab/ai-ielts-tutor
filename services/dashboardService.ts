@@ -35,6 +35,14 @@ export interface DashboardPayload {
     quality: { writing: number | null; speaking: number | null; reading: number | null; listening: number | null };
     effective_practice_minutes: number;
 
+    /** Today's commitment progress — populated when `daily_commitment_minutes`
+     * was set during onboarding. `progress` is null when no commitment was set. */
+    daily_commitment: {
+        minutes_today: number;
+        commitment_minutes: number;
+        progress: number | null;
+    };
+
     vocabulary: { unique_total: number; unique_b2_plus: number; awl_total: number; added_this_period: number | null };
 
     calibration: { samples: number; avg_delta: number | null };
@@ -145,6 +153,21 @@ export interface ReattemptDiff {
     criteria: { key: string; label: string; before: number | null; after: number | null; delta: number | null; before_comment: string; after_comment: string }[];
 }
 
+export interface StreakSnapshot {
+    current_days: number;
+    longest_days: number;
+    last_session_date: string | null;
+    is_at_risk: boolean;
+    just_broken: boolean;
+}
+
+export interface WarmupPayload {
+    due_srs_count: number;
+    due_categories: { category: string; count: number }[];
+    suggested_cards: ErrorCard[];
+    session_type: string | null;
+}
+
 export interface CohortBenchmark {
     you: { writing: { avg: number | null; n: number }; speaking: { avg: number | null; n: number } };
     institute: { slug: string | null; writing: { avg: number | null; n: number }; speaking: { avg: number | null; n: number } };
@@ -224,6 +247,13 @@ export const dashboardService = {
         apiClient.post<ReattemptDiff>('/analytics/reattempt-diff', { kind, original_id, reattempt_id }),
 
     fetchCohort: () => apiClient.get<CohortBenchmark>('/analytics/cohort'),
+
+    fetchStreak: () => apiClient.get<StreakSnapshot>('/analytics/streak'),
+
+    fetchWarmup: (sessionType?: 'writing' | 'speaking' | 'reading' | 'listening') => {
+        const qs = sessionType ? `?session_type=${sessionType}` : '';
+        return apiClient.get<WarmupPayload>(`/analytics/warmup${qs}`);
+    },
 
     fetchStudyPlanLatest: () =>
         apiClient.get<{ plan: { id: string; plan: { plan: { day: number; focus: string; task: string }[] }; is_active: boolean; created_at: string } | null }>(
