@@ -13,9 +13,14 @@ from apps.practice.views.cohort import CohortBenchmarkView
 from apps.practice.views.dashboard import DashboardAnalyticsView
 from apps.practice.views.dashboard_state import (
     AlertsView, AlertDismissView, BadgesView, CalibrationView,
-    DailyChallengeView, ErrorCardsView, ErrorCardReviewView, MockTestsView,
+    DailyChallengeView, ErrorCardsView, ErrorCardReviewView,
+    GuaranteeEligibilityView, MockTestsView,
     ShareLinkView, ShareLinkRevokeView, StreakView, StudyPlanLatestView,
     VocabularyView, WarmupView,
+)
+from apps.practice.views.reviews import (
+    ReviewClaimView, ReviewCompleteView, ReviewPayStubView,
+    ReviewQueueView, StudentReviewsView,
 )
 from apps.practice.views.scorecard import ReattemptDiffView, ScorecardView
 from apps.practice.views.ux import (
@@ -45,6 +50,14 @@ urlpatterns = [
     path("warmup", WarmupView.as_view(), name="analytics-warmup"),
     path("daily-challenge", DailyChallengeView.as_view(), name="analytics-daily-challenge"),
     path("badges", BadgesView.as_view(), name="analytics-badges"),
+    path("guarantee", GuaranteeEligibilityView.as_view(), name="analytics-guarantee"),
+
+    # Human-graded review queue (T2#7) — payment stubbed.
+    path("reviews", StudentReviewsView.as_view(), name="analytics-reviews"),
+    path("reviews/queue", ReviewQueueView.as_view(), name="analytics-reviews-queue"),
+    path("reviews/<uuid:review_id>/claim", ReviewClaimView.as_view(), name="analytics-reviews-claim"),
+    path("reviews/<uuid:review_id>/complete", ReviewCompleteView.as_view(), name="analytics-reviews-complete"),
+    path("reviews/<uuid:review_id>/pay-stub", ReviewPayStubView.as_view(), name="analytics-reviews-pay-stub"),
     path("alerts", AlertsView.as_view(), name="analytics-alerts"),
     path("alerts/<uuid:alert_id>/dismiss", AlertDismissView.as_view(), name="analytics-alert-dismiss"),
 

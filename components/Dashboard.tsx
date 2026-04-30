@@ -25,6 +25,8 @@ import DailyChallengeCard from './ui/DailyChallengeCard';
 import BadgeGallery from './ui/BadgeGallery';
 import CrashPlanBanner from './ui/CrashPlanBanner';
 import ReadingWpmWidget from './ui/ReadingWpmWidget';
+import LexicalTrendChart from './ui/LexicalTrendChart';
+import PronunciationHeatmap from './ui/PronunciationHeatmap';
 
 type DaysFilter = 7 | 30 | 'all';
 
@@ -187,6 +189,26 @@ const Dashboard: React.FC = () => {
                     >
                         <BadgeGallery />
                     </Section>
+
+                    {/* Lexical sophistication trend */}
+                    {data.lexical_trend && data.lexical_trend.weeks.length > 0 && (
+                        <Section
+                            title="Lexical growth"
+                            subtitle="New B2+ and academic words over the last 12 weeks."
+                        >
+                            <LexicalTrendChart weeks={data.lexical_trend.weeks} />
+                        </Section>
+                    )}
+
+                    {/* Pronunciation heatmap */}
+                    {data.pronunciation_heatmap && data.pronunciation_heatmap.cells.length > 0 && (
+                        <Section
+                            title="Pronunciation pattern"
+                            subtitle="Phonemes flagged across your analyzed speaking sessions."
+                        >
+                            <PronunciationHeatmap cells={data.pronunciation_heatmap.cells} />
+                        </Section>
+                    )}
 
                     {/* Target gauges (#11) */}
                     <Section

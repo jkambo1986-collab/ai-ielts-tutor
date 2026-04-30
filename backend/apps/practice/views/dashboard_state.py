@@ -355,6 +355,22 @@ class BadgesView(APIView):
         return Response({"badges": rows, "count": len(rows)})
 
 
+# -- Score guarantee eligibility (T3#15) -- #
+
+class GuaranteeEligibilityView(APIView):
+    """GET /api/v1/analytics/guarantee — does this student qualify for the
+    score-guarantee program? Returns the heuristic decision + raw signals.
+
+    No financial implication; this endpoint exists so the FE / B2B sales
+    surface can show 'eligible' before the program is contractually live.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.practice.services.guarantee import assess
+        return Response(assess(request.user))
+
+
 # -- Streak status -- #
 
 class StreakView(APIView):

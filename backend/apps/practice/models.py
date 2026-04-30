@@ -772,6 +772,252 @@ class DailyChallenge(models.Model):
         ]
 
 
+class TutorProfile(models.Model):
+    """Live tutor for the marketplace (T3#13).
+
+    Institute-managed: institute admins onboard their own tutors. Each
+    tutor lists hourly rate, languages, specialities, availability JSON.
+    Bookings ride on TutorBooking. Payment routing (Stripe Connect) is
+    intentionally NOT modelled here — the booking row carries
+    `payment_intent_id` and `marker_payout_id` placeholders for the
+    eventual cutover.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="tutor_profiles")
+    user = models.OneToOneField("accounts.User", on_delete=models.CASCADE, related_name="tutor_profile")
+    bio = models.TextField(blank=True)
+    hourly_rate_cents = models.PositiveIntegerField(default=0, help_text="Listed rate; payment is stubbed.")
+    currency = models.CharField(max_length=3, default="USD")
+    languages = models.JSONField(default=list, blank=True, help_text="ISO codes the tutor teaches in.")
+    specialities = models.JSONField(default=list, blank=True, help_text="e.g. ['speaking-part-2','task-2-essays']")
+    availability = models.JSONField(default=dict, blank=True, help_text="Day-of-week → list of [start,end] hour pairs.")
+    rating_avg = models.FloatField(null=True, blank=True)
+    rating_count = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "practice_tutor_profile"
+        ordering = ["-rating_avg", "-created_at"]
+
+
+class TutorBooking(models.Model):
+    """One booked session between a student and a tutor (T3#13).
+
+    Payment, payouts, refunds are stubbed: the columns exist so the live
+    integration can land without a schema change, but the platform does
+    NOT charge cards yet. Hooks into the existing speaking-session infra
+    when status flips to LIVE.
+    """
+
+    STATUS_REQUESTED = "requested"
+    STATUS_CONFIRMED = "confirmed"
+    STATUS_LIVE = "live"
+    STATUS_COMPLETED = "completed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_REQUESTED, "Requested"),
+        (STATUS_CONFIRMED, "Confirmed"),
+        (STATUS_LIVE, "Live"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    student = models.ForeignKey(
+        "accounts.User", on_delete=models.CASCADE, related_name="tutor_bookings_made",
+    )
+    tutor = models.ForeignKey(
+        TutorProfile, on_delete=models.CASCADE, related_name="bookings",
+    )
+    scheduled_for = models.DateTimeField(db_index=True)
+    duration_minutes = models.PositiveIntegerField(default=30)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_REQUESTED, db_index=True)
+    speaking_session = models.ForeignKey(
+        "SpeakingSession", on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        help_text="Filled when the booking goes LIVE and a speaking session row is created.",
+    )
+    rate_cents = models.PositiveIntegerField(default=0)
+    currency = models.CharField(max_length=3, default="USD")
+    # Reserved for Stripe Connect cutover.
+    payment_intent_id = models.CharField(max_length=120, blank=True, default="")
+    marker_payout_id = models.CharField(max_length=120, blank=True, default="")
+    paid_at = models.DateTimeField(null=True, blank=True)
+    refunded_at = models.DateTimeField(null=True, blank=True)
+    student_notes = models.TextField(blank=True)
+    tutor_notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "practice_tutor_booking"
+        ordering = ["-scheduled_for"]
+        indexes = [
+            models.Index(fields=["tutor", "scheduled_for"]),
+            models.Index(fields=["student", "-scheduled_for"]),
+        ]
+
+
+class MockTestBankItem(models.Model):
+    """One pre-generated mock test in the AI-authored bank (T3#14).
+
+    Lets us compete with "100 real questions" claims through scale rather
+    than authority — the bank can grow indefinitely via the
+    `generate_mock_test_bank` management command. Each row carries the
+    full payload (passage/script/questions or writing prompt) plus the
+    topic taxonomy + target band so the FE can filter.
+
+    Rows are NOT tenant-scoped — the bank is platform-wide.
+    """
+
+    SKILL_CHOICES = [
+        ("reading", "Reading"),
+        ("listening", "Listening"),
+        ("writing", "Writing"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    skill = models.CharField(max_length=10, choices=SKILL_CHOICES, db_index=True)
+    topic = models.CharField(max_length=40, db_index=True)
+    target_band = models.DecimalField(max_digits=3, decimal_places=1, default=7.0)
+    payload = models.JSONField(help_text="Full test payload — same shape the FE expects from the live agent.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "practice_mock_test_bank_item"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["skill", "topic"]),
+        ]
+
+
+class DebateRoom(models.Model):
+    """Group speaking practice room for matched peers (T2#10).
+
+    Two-3 students debate a Part-3-style topic with the AI as moderator.
+    The room is created via the matching service when N students with
+    similar target bands queue up. Real-time audio routing rides on top
+    of the existing Gemini Live infra (each participant gets ephemeral
+    creds); this row stores the SHARED state (topic, transcript by turn,
+    moderator notes, post-debate band per participant).
+    """
+
+    STATUS_WAITING = "waiting"
+    STATUS_LIVE = "live"
+    STATUS_COMPLETED = "completed"
+    STATUS_ABORTED = "aborted"
+    STATUS_CHOICES = [
+        (STATUS_WAITING, "Waiting"),
+        (STATUS_LIVE, "Live"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_ABORTED, "Aborted"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    topic = models.CharField(max_length=400)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_WAITING, db_index=True)
+    target_band = models.DecimalField(
+        max_digits=3, decimal_places=1, default=7.0,
+        help_text="Average target band of participants — used by matching.",
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    transcript = models.JSONField(default=list, blank=True)
+    moderator_notes = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "practice_debate_room"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["institute", "status"]),
+        ]
+
+
+class DebateParticipant(models.Model):
+    """One row per (room, user). Holds the per-participant outcome."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    room = models.ForeignKey(DebateRoom, on_delete=models.CASCADE, related_name="participants")
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="debate_seats")
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+    band_score = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
+    feedback = models.JSONField(default=dict, blank=True)
+    # Compared against the participant's recent solo-speaking band so the
+    # post-debate strip can show the delta.
+    solo_baseline_band = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
+
+    class Meta:
+        db_table = "practice_debate_participant"
+        constraints = [
+            models.UniqueConstraint(fields=["room", "user"], name="unique_debate_seat"),
+        ]
+
+
+class ReviewRequest(models.Model):
+    """Human-grading request for a writing or speaking session.
+
+    Pro-Plus tier add-on (T2#7). A student queues a session for human
+    examiner review with an SLA (default 48h). An institute-managed
+    marketplace of approved markers picks up the request, completes the
+    review, and submits a grade + notes. Payment routing is intentionally
+    stubbed at the model layer (`paid_at`, `payment_intent_id`) so the
+    integration with Stripe Connect / similar can land later without a
+    schema change.
+    """
+
+    SESSION_TYPE_CHOICES = [
+        ("writing", "Writing"),
+        ("speaking", "Speaking"),
+    ]
+    STATUS_QUEUED = "queued"
+    STATUS_CLAIMED = "claimed"
+    STATUS_COMPLETED = "completed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, "Queued"),
+        (STATUS_CLAIMED, "Claimed"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="review_requests")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    session_type = models.CharField(max_length=10, choices=SESSION_TYPE_CHOICES)
+    session_id = models.UUIDField(db_index=True)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_QUEUED, db_index=True)
+    sla_due_at = models.DateTimeField()
+    student_notes = models.TextField(blank=True, help_text="Optional: what the student wants the marker to focus on.")
+    marker = models.ForeignKey(
+        "accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="claimed_reviews",
+    )
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    marker_band_score = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
+    marker_notes = models.TextField(blank=True)
+    # Payment integration is deferred. These columns are reserved so the
+    # marketplace ships without a schema change when wired.
+    paid_at = models.DateTimeField(null=True, blank=True)
+    payment_intent_id = models.CharField(max_length=120, blank=True, default="")
+    # Soft-cancellation audit so we keep the record.
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "practice_review_request"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["institute", "status", "sla_due_at"]),
+            models.Index(fields=["user", "-created_at"]),
+        ]
+
+
 class Badge(models.Model):
     """Earned achievement. Append-only — earning the same badge twice is
     impossible (unique constraint), so the row IS the proof.

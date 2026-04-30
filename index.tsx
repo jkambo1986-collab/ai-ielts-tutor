@@ -39,3 +39,14 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+// Register the service worker for PWA install + offline app shell. Skip in
+// dev (Vite serves with HMR; SW caching there causes stale-asset confusion).
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((e) => {
+      // Non-fatal — the app still works without the SW.
+      console.warn('Service worker registration failed:', e);
+    });
+  });
+}

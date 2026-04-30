@@ -3,6 +3,12 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from apps.practice.views.debate import (
+    DebateLeaveView, DebateQueueView, DebateRoomView,
+)
+from apps.practice.views.tutors import (
+    BookingActionView, BookingsView, TutorListView, TutorUpsertView,
+)
 from apps.practice.views.sessions import SpeakingSessionViewSet
 from apps.practice.views.speaking_ai import (
     AnalyzeTranscriptView,
@@ -63,4 +69,16 @@ urlpatterns = [
     # Instructor review (cross-user within institute)
     path("instructor/sessions/<uuid:session_id>",
          InstructorReviewView.as_view(), name="speaking-instructor-review"),
+
+    # Group debate (T2#10)
+    path("debate/queue", DebateQueueView.as_view(), name="speaking-debate-queue"),
+    path("debate/rooms/<uuid:room_id>", DebateRoomView.as_view(), name="speaking-debate-room"),
+    path("debate/rooms/<uuid:room_id>/leave", DebateLeaveView.as_view(), name="speaking-debate-leave"),
+
+    # Tutor marketplace (T3#13) — payment integration stubbed.
+    path("tutors", TutorListView.as_view(), name="speaking-tutors"),
+    path("tutors/upsert", TutorUpsertView.as_view(), name="speaking-tutors-upsert"),
+    path("bookings", BookingsView.as_view(), name="speaking-bookings"),
+    path("bookings/<uuid:booking_id>/<str:action>",
+         BookingActionView.as_view(), name="speaking-booking-action"),
 ] + router.urls

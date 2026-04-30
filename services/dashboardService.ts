@@ -51,6 +51,18 @@ export interface DashboardPayload {
         target_wpm_for_band: number | null;
     };
 
+    /** Lexical sophistication trend, last 12 weeks. */
+    lexical_trend: {
+        weeks: { week_start: string; unique_b2_plus: number; awl: number; type_token_ratio: number | null }[];
+        lookback_weeks: number;
+    };
+
+    /** Aggregated pronunciation issues across speaking sessions. */
+    pronunciation_heatmap: {
+        cells: { phoneme: string; sessions: number; problem_words: number; examples: string[] }[];
+        total_phonemes_flagged: number;
+    };
+
     vocabulary: { unique_total: number; unique_b2_plus: number; awl_total: number; added_this_period: number | null };
 
     calibration: { samples: number; avg_delta: number | null };

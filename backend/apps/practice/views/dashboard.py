@@ -162,6 +162,92 @@ def _speaking_part_split(sessions) -> dict:
     }
 
 
+def _compute_pronunciation_heatmap(user) -> dict:
+    """Aggregate `pronunciationAnalysis` blobs across all analyzed speaking
+    sessions. The result is keyed by targetPhoneme; for each phoneme we
+    record how many sessions flagged it and the total problemWord count.
+    The FE renders this as a phoneme-by-frequency heat-map grid."""
+    from collections import defaultdict
+    rows = (
+        SpeakingSession.objects.filter(
+            user=user, deleted_at__isnull=True, analysis__isnull=False,
+        ).values_list("analysis", flat=True)
+    )
+    bucket: dict[str, dict] = defaultdict(lambda: {"sessions": 0, "problem_words": 0, "examples": []})
+    for analysis in rows:
+        if not isinstance(analysis, dict):
+            continue
+        pron = analysis.get("pronunciationAnalysis")
+        if not isinstance(pron, dict):
+            continue
+        ph = (pron.get("targetPhoneme") or "").strip()
+        if not ph:
+            continue
+        words = pron.get("problemWords") or []
+        b = bucket[ph]
+        b["sessions"] += 1
+        if isinstance(words, list):
+            b["problem_words"] += len(words)
+            for w in words[:3]:
+                if isinstance(w, str) and w not in b["examples"]:
+                    b["examples"].append(w)
+                if len(b["examples"]) >= 6:
+                    break
+    cells = [
+        {
+            "phoneme": ph,
+            "sessions": b["sessions"],
+            "problem_words": b["problem_words"],
+            "examples": b["examples"],
+        }
+        for ph, b in sorted(bucket.items(), key=lambda kv: -kv[1]["sessions"])
+    ]
+    return {"cells": cells, "total_phonemes_flagged": len(cells)}
+
+
+def _compute_lexical_trend(user) -> dict:
+    """Per-week lexical sophistication metrics, last 12 weeks.
+
+    Three signals per week (chronological):
+      - unique_b2_plus: count of unique B2/C1/C2 lemmas first seen that week
+      - awl: count of unique AWL words first seen that week
+      - type_token_ratio: best-effort proxy from VocabularyObservation.frequency
+    """
+    cutoff = timezone.now() - timedelta(weeks=12)
+    from collections import defaultdict
+    from datetime import date as _date
+
+    rows = list(
+        VocabularyObservation.objects.filter(
+            user=user, deleted_at__isnull=True, first_seen_at__gte=cutoff,
+        ).values("first_seen_at", "cefr_level", "is_awl", "frequency")
+    )
+    bucket: dict[_date, dict] = defaultdict(lambda: {"b2_plus": 0, "awl": 0, "freq_sum": 0, "lemma_count": 0})
+    for r in rows:
+        # Week start (Monday) of the first-seen date, in local time.
+        d = timezone.localtime(r["first_seen_at"]).date()
+        week_start = d - timedelta(days=d.weekday())
+        b = bucket[week_start]
+        if r.get("cefr_level") in ("B2", "C1", "C2"):
+            b["b2_plus"] += 1
+        if r.get("is_awl"):
+            b["awl"] += 1
+        b["freq_sum"] += int(r.get("frequency") or 1)
+        b["lemma_count"] += 1
+
+    series = sorted(bucket.items())
+    out = []
+    for week_start, b in series:
+        ttr = round(b["lemma_count"] / b["freq_sum"], 3) if b["freq_sum"] else None
+        out.append({
+            "week_start": week_start.isoformat(),
+            "unique_b2_plus": b["b2_plus"],
+            "awl": b["awl"],
+            "type_token_ratio": ttr,
+        })
+    return {"weeks": out, "lookback_weeks": 12}
+
+
 def _compute_reading_wpm(user) -> dict:
     """Words-per-minute reading pace, plus a band-target recommendation.
 
@@ -490,6 +576,12 @@ class DashboardAnalyticsView(APIView):
 
             # Reading words-per-minute trend + band-target pacing.
             "reading_wpm": _compute_reading_wpm(user),
+
+            # Lexical sophistication trend (last 12 weeks).
+            "lexical_trend": _compute_lexical_trend(user),
+
+            # Pronunciation phoneme-frequency heatmap (across all speaking sessions).
+            "pronunciation_heatmap": _compute_pronunciation_heatmap(user),
 
             # Vocab (#19)
             "vocabulary": vocab_stats,
