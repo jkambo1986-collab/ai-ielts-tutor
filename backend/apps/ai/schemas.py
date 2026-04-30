@@ -493,3 +493,32 @@ CONTEXTUAL_WRITING_PROMPTS_SCHEMA = {
         "required": ["text", "reason"],
     },
 }
+
+
+# -- Listening dictation -- #
+
+DICTATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "script": {
+            "type": "string",
+            "description": "Plain-text passage the speaker says, 60-110 words. No speaker names, no timestamps. Punctuation included.",
+        },
+        "blanks": {
+            "type": "array",
+            "description": "5-8 evenly-spaced gaps the student must transcribe. Each blank gives the index range in the script and the canonical answer.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "start": {"type": "number"},
+                    "end": {"type": "number"},
+                    "answer": {"type": "string"},
+                    "hint": {"type": "string", "description": "One-letter or contextual hint, e.g. 'starts with /θ/'."},
+                },
+                "required": ["start", "end", "answer"],
+            },
+        },
+    },
+    "required": ["title", "script", "blanks"],
+}

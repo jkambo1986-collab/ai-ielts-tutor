@@ -269,6 +269,8 @@ class _AnalyzeInput(serializers.Serializer):
     )
     # Optional — when provided, the resulting analysis is persisted onto the session row.
     session_id = serializers.UUIDField(required=False)
+    # One Skill Retake — appends the OSR diagnostic to the analysis.
+    osr = serializers.BooleanField(required=False, default=False)
 
 
 class AnalyzeTranscriptView(APIView):
@@ -290,6 +292,7 @@ class AnalyzeTranscriptView(APIView):
         analysis = ai_service.analyze_speaking_performance(
             transcript=s.validated_data["transcript"], mode=s.validated_data["mode"],
             ctx=build_for_user(request.user),
+            osr=s.validated_data.get("osr", False),
         )
 
         sid = s.validated_data.get("session_id")

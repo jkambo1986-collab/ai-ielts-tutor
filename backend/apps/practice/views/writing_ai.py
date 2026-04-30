@@ -12,6 +12,7 @@ from apps.ai.context import build_for_user
 from apps.billing import features
 from apps.billing.features import requires_feature
 from apps.practice.models import VocabularyObservation, WritingSession
+from apps.practice.services import badges as badges_service
 from apps.practice.services.bands import writing_quality_score
 from apps.practice.services.error_cards import extract_from_writing_feedback
 from apps.practice.services.vocab import extract_lemmas
@@ -31,6 +32,9 @@ class _EvaluateInput(serializers.Serializer):
     duration_seconds = serializers.IntegerField(required=False, min_value=0, default=0)
     predicted_band = serializers.FloatField(required=False, allow_null=True, min_value=1.0, max_value=9.0)
     parent_session_id = serializers.UUIDField(required=False, allow_null=True)
+    # One Skill Retake — student is preparing to retake just this one skill
+    # on the official exam. Triggers the OSR diagnostic in the AI prompt.
+    osr = serializers.BooleanField(required=False, default=False)
 
 
 class EvaluateWritingView(APIView):
@@ -46,6 +50,7 @@ class EvaluateWritingView(APIView):
             essay=s.validated_data["essay"],
             target_score=s.validated_data.get("target_score"),
             ctx=build_for_user(request.user),
+            osr=s.validated_data.get("osr", False),
         )
 
         essay = s.validated_data["essay"]
@@ -100,6 +105,17 @@ class EvaluateWritingView(APIView):
             session_id=session.id,
             feedback=feedback,
         )
+
+        # Badges — best-effort, never block the response.
+        try:
+            badges_service.evaluate_session_badges(
+                request.user, band=float(session.band_score or 0), kind="writing",
+            )
+            if s.validated_data.get("predicted_band") is not None:
+                badges_service.evaluate_calibration_badges(request.user)
+            badges_service.evaluate_vocab_badges(request.user)
+        except Exception:
+            pass
 
         # Vocabulary ingestion (#19) — best-effort, never block on failure.
         try:

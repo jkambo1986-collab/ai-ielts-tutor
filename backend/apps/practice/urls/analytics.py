@@ -12,9 +12,10 @@ from apps.practice.views.analytics import (
 from apps.practice.views.cohort import CohortBenchmarkView
 from apps.practice.views.dashboard import DashboardAnalyticsView
 from apps.practice.views.dashboard_state import (
-    AlertsView, AlertDismissView, CalibrationView, ErrorCardsView,
-    ErrorCardReviewView, MockTestsView, ShareLinkView, ShareLinkRevokeView,
-    StreakView, StudyPlanLatestView, VocabularyView, WarmupView,
+    AlertsView, AlertDismissView, BadgesView, CalibrationView,
+    DailyChallengeView, ErrorCardsView, ErrorCardReviewView, MockTestsView,
+    ShareLinkView, ShareLinkRevokeView, StreakView, StudyPlanLatestView,
+    VocabularyView, WarmupView,
 )
 from apps.practice.views.scorecard import ReattemptDiffView, ScorecardView
 from apps.practice.views.ux import (
@@ -42,6 +43,8 @@ urlpatterns = [
     path("share-links/<uuid:link_id>/revoke", ShareLinkRevokeView.as_view(), name="analytics-share-link-revoke"),
     path("streak", StreakView.as_view(), name="analytics-streak"),
     path("warmup", WarmupView.as_view(), name="analytics-warmup"),
+    path("daily-challenge", DailyChallengeView.as_view(), name="analytics-daily-challenge"),
+    path("badges", BadgesView.as_view(), name="analytics-badges"),
     path("alerts", AlertsView.as_view(), name="analytics-alerts"),
     path("alerts/<uuid:alert_id>/dismiss", AlertDismissView.as_view(), name="analytics-alert-dismiss"),
 

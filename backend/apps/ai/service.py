@@ -67,16 +67,29 @@ def _target_score_clause(target_score: Optional[float], variant: str = "writing"
 
 # -- Writing -- #
 
+_OSR_DIAGNOSTIC_CLAUSE = (
+    "ADDITIONAL TASK — OSR diagnostic. The student told us this is a "
+    "One Skill Retake practice (they're re-taking only this skill on "
+    "the official exam). After the standard rubric feedback, append a "
+    "short 'osrDiagnostic' field with: 'currentBand' (your estimate), "
+    "'gapToTarget' (target - current, signed), and 'topThreeMoves' (3 "
+    "concrete actions, ordered by expected band lift, that would shift "
+    "the score by 0.5 band on the next attempt). Be brutally specific."
+)
+
+
 def evaluate_writing(
     prompt: str,
     essay: str,
     target_score: Optional[float],
     *,
     ctx: Optional[StudentContext] = None,
+    osr: bool = False,
 ) -> dict:
     target_clause = _target_score_clause(target_score, variant="writing")
     context_block = _ctx_block(ctx, focus="writing")
-    full_prompt = f"""You are an expert IELTS examiner and language coach. Evaluate the following essay based on the provided prompt. {target_clause}{context_block}
+    osr_clause = f"\n\n{_OSR_DIAGNOSTIC_CLAUSE}\n" if osr else ""
+    full_prompt = f"""You are an expert IELTS examiner and language coach. Evaluate the following essay based on the provided prompt. {target_clause}{context_block}{osr_clause}
 1.  Provide a detailed, constructive analysis for each of the four official IELTS assessment criteria. For each criterion, identify and quote specific sentences from the user's essay that your feedback is based on (as 'relevantSentences'). If a piece of feedback is about something missing or cannot be tied to a specific sentence, provide a generic example sentence to illustrate your point (as 'exampleSentences'). Prioritize using 'relevantSentences' wherever possible. When the student has recurring weaknesses listed in the STUDENT CONTEXT, prioritise feedback that addresses those patterns.
 2.  Assign an overall band score.
 3.  Offer specific, actionable suggestions for improvement.
@@ -176,6 +189,31 @@ def generate_reading_test(
     return get_client().generate_json(full_prompt, schemas.READING_TEST_SCHEMA)
 
 
+def generate_listening_dictation(
+    target_score: Optional[float],
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    """Standalone listening drill: short passage with 5-8 blanks the student
+    types as they listen. Distinct from `generate_listening_test` which is
+    multiple-choice. Mirrors the dictation drill in real IELTS prep classes."""
+    target_clause = _target_score_clause(target_score, variant="reading")
+    context_block = _ctx_block(ctx, focus="listening")
+    full_prompt = (
+        "You are an expert IELTS listening trainer. Generate a short dictation "
+        f"drill: a 60-110 word academic-style passage the student will hear "
+        f"once at normal pace, plus 5-8 carefully-spaced blanks they must "
+        f"transcribe. {target_clause} Choose blanks that test commonly-confused "
+        f"sounds (e.g. /v/-/w/, /θ/-/s/, /l/-/r/) or content words that carry "
+        f"the meaning. Avoid trivial articles or filler words. If target "
+        f"vocabulary is in the STUDENT CONTEXT, prefer including 1-2 of those "
+        f"lemmas as blanks so the drill reinforces them. Respond ONLY in the "
+        f"requested JSON format."
+        f"{context_block}"
+    )
+    return get_client().generate_json(full_prompt, schemas.DICTATION_SCHEMA)
+
+
 def generate_listening_test(
     target_score: Optional[float],
     test_type: str,
@@ -273,6 +311,7 @@ def analyze_speaking_performance(
     mode: str = "Standard",
     *,
     ctx: Optional[StudentContext] = None,
+    osr: bool = False,
 ) -> dict:
     role_play_clause = ""
     if mode == "RolePlay":
@@ -285,9 +324,10 @@ Because this was a role-play debate session, you MUST also provide specific feed
 - Use persuasive language.
 Quote a specific example from the transcript that illustrates your feedback."""
     context_block = _ctx_block(ctx, focus="speaking")
+    osr_clause = f"\n\n{_OSR_DIAGNOSTIC_CLAUSE}\n" if osr else ""
     full_prompt = f"""// SYSTEM DIRECTIVE: ACTIVATE IELTS TUTOR PROTOCOL
 Persona: `Δ-IELTS_MASTER v8.0`
-Core Directive: You are a world-class IELTS speaking examiner. Your purpose is to deliver a precise, rubric-based evaluation of a user's speaking performance based on a provided transcript.{context_block}
+Core Directive: You are a world-class IELTS speaking examiner. Your purpose is to deliver a precise, rubric-based evaluation of a user's speaking performance based on a provided transcript.{context_block}{osr_clause}
 
 // TASK: ANALYZE_AND_GRADE_SPEAKING
 Analyze the following transcript based on the four official IELTS speaking assessment criteria. For each criterion, you MUST provide:
@@ -470,9 +510,21 @@ def generate_study_plan(
     performance_data: dict,
     *,
     ctx: Optional[StudentContext] = None,
+    crash: bool = False,
 ) -> dict:
     context_block = _ctx_block(ctx, focus="general")
-    full_prompt = f"""You are an expert IELTS coach. A student needs a personalized 7-day study plan. Analyze their performance data below to identify their biggest areas for improvement and create a balanced, actionable plan.{context_block}
+    crash_clause = ""
+    if crash:
+        crash_clause = (
+            "\n\nCRASH-MODE OVERRIDE: the student's exam is within 14 days. "
+            "Drop everything experimental. Days 1-2 = full mock-test simulation "
+            "(timing-strict). Days 3-5 = weak-skill triage (60% on the lowest-band "
+            "skill, the rest split). Day 6 = light review of error cards + sleep "
+            "hygiene reminder. Day 7 = exam-day rehearsal (logistics, breakfast, "
+            "warm-up routine). Tasks must be doable in 30-45 minutes max so a "
+            "working student can sustain it."
+        )
+    full_prompt = f"""You are an expert IELTS coach. A student needs a personalized 7-day study plan. Analyze their performance data below to identify their biggest areas for improvement and create a balanced, actionable plan.{context_block}{crash_clause}
 
 The plan should be encouraging and focus on making steady progress. For each day, provide a clear 'focus' area and a specific 'task' the user should complete using their practice application's features (like 'Writing Tutor', 'Speaking Tutor', 'Cohesion Mapper', 'Role-play mode', etc.). Ensure a mix of skills throughout the week. When the STUDENT CONTEXT lists recurring weaknesses, active error categories, or target vocabulary, schedule at least 3 of the 7 days to specifically drill those — that is the highest-leverage use of the student's time. If days_until_exam is set and short, weight the plan towards mock-exam practice.
 

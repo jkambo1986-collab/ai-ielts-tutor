@@ -34,6 +34,27 @@ class GenerateListeningTestView(APIView):
         return Response({"test": test})
 
 
+class _DictationInput(serializers.Serializer):
+    target_score = serializers.FloatField(required=False, allow_null=True, min_value=1.0, max_value=9.0)
+
+
+class GenerateListeningDictationView(APIView):
+    """POST /api/v1/listening/dictation — generate a short type-as-you-hear drill."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "ai_generate"
+
+    def post(self, request):
+        s = _DictationInput(data=request.data)
+        s.is_valid(raise_exception=True)
+        drill = ai_service.generate_listening_dictation(
+            target_score=s.validated_data.get("target_score"),
+            ctx=build_for_user(request.user),
+        )
+        return Response({"drill": drill})
+
+
 class _EvaluateAnswerInput(serializers.Serializer):
     script = serializers.ListField(child=serializers.DictField(), min_length=1)
     question = serializers.CharField(max_length=2000)

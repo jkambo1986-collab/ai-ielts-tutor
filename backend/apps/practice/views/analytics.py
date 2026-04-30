@@ -169,16 +169,26 @@ class StudyPlanView(APIView):
 
     @requires_feature(features.FEATURE_STUDY_PLAN)
     def post(self, request):
-        performance = request.data or {}
+        performance = request.data.get("performance") if isinstance(request.data, dict) else None
         if not performance:
             performance = {
                 "estimated_skills": adaptive.overview(request.user)["estimated_skills"],
                 "target_score": request.user.target_score,
             }
+        # Crash-mode toggle: tighter prompt for students whose exam is imminent.
+        # Auto-detected from exam_date; can be forced via ?mode=crash.
+        from datetime import date as _date
+        days_until = None
+        if request.user.exam_date:
+            days_until = (request.user.exam_date - _date.today()).days
+        crash = (
+            request.query_params.get("mode") == "crash"
+            or (days_until is not None and 0 <= days_until <= 14)
+        )
         plan = ai_service.generate_study_plan(
-            performance, ctx=build_for_user(request.user),
+            performance, ctx=build_for_user(request.user), crash=crash,
         )
         StudyPlan.objects.create(
             institute=request.user.institute, user=request.user, plan=plan,
         )
-        return Response({"plan": plan})
+        return Response({"plan": plan, "crash_mode": crash, "days_until_exam": days_until})

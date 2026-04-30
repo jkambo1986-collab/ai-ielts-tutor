@@ -162,6 +162,57 @@ def _speaking_part_split(sessions) -> dict:
     }
 
 
+def _compute_reading_wpm(user) -> dict:
+    """Words-per-minute reading pace, plus a band-target recommendation.
+
+    For each ReadingSession with a passage and a duration, words / (duration/60)
+    gives a session WPM. We average the most recent 5 sessions for the headline
+    figure and surface the trend so the FE can render a small sparkline.
+
+    Target pacing per IELTS band (approximate, public coaching guidance):
+      band 6: ~150 wpm  band 7: ~200 wpm  band 8+: ~250 wpm
+    """
+    rows = list(
+        ReadingSession.objects.filter(
+            user=user, deleted_at__isnull=True,
+            duration_seconds__gt=0,
+        ).order_by("-created_at")
+        .values("passage_content", "duration_seconds", "created_at")[:10]
+    )
+    samples: list[dict] = []
+    for r in rows:
+        text = (r.get("passage_content") or "").strip()
+        if not text:
+            continue
+        words = len(text.split())
+        secs = r.get("duration_seconds") or 0
+        if words < 30 or secs < 30:
+            # Trivially short data — would skew the average. Skip.
+            continue
+        wpm = round(words / (secs / 60.0))
+        samples.append({
+            "wpm": wpm,
+            "at": r["created_at"].isoformat(),
+        })
+    if not samples:
+        return {"avg_wpm": None, "samples": [], "target_wpm_for_band": None}
+    avg = round(sum(s["wpm"] for s in samples[:5]) / min(5, len(samples)))
+    target_band = float(getattr(user, "target_score", None) or 7.0)
+    if target_band >= 8.0:
+        target_wpm = 250
+    elif target_band >= 7.0:
+        target_wpm = 200
+    elif target_band >= 6.0:
+        target_wpm = 150
+    else:
+        target_wpm = 120
+    return {
+        "avg_wpm": avg,
+        "samples": list(reversed(samples)),  # chronological for charting
+        "target_wpm_for_band": target_wpm,
+    }
+
+
 def _compute_daily_commitment(user) -> dict:
     """Today's practice minutes (sum across all four session types) plus the
     user's onboarding commitment. The FE renders a progress ring + a late-day
@@ -436,6 +487,9 @@ class DashboardAnalyticsView(APIView):
             # Daily commitment progress — minutes practised TODAY (local date)
             # vs the user's onboarding commitment. Powers the FE progress ring.
             "daily_commitment": _compute_daily_commitment(user),
+
+            # Reading words-per-minute trend + band-target pacing.
+            "reading_wpm": _compute_reading_wpm(user),
 
             # Vocab (#19)
             "vocabulary": vocab_stats,

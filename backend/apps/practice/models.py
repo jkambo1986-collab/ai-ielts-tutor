@@ -733,3 +733,72 @@ class WritingDraft(models.Model):
         ]
 
 
+class DailyChallenge(models.Model):
+    """One short prompt per user per day across writing/speaking/reading/listening.
+
+    Engagement loop: 5-minute commitment, completion ticks the streak. Skill
+    rotates by day-of-year so the user touches all four skills weekly.
+    """
+
+    SKILL_CHOICES = [
+        ("writing", "Writing"),
+        ("speaking", "Speaking"),
+        ("reading", "Reading"),
+        ("listening", "Listening"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="daily_challenges")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    challenge_date = models.DateField(db_index=True)
+    skill = models.CharField(max_length=10, choices=SKILL_CHOICES)
+    prompt = models.TextField(help_text="Short challenge text shown on Today.")
+    completed_at = models.DateTimeField(null=True, blank=True)
+    # The session id that fulfilled this challenge — null until completion.
+    session_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "practice_daily_challenge"
+        ordering = ["-challenge_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "challenge_date"],
+                name="unique_daily_challenge_per_user_per_day",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["user", "-challenge_date"]),
+        ]
+
+
+class Badge(models.Model):
+    """Earned achievement. Append-only — earning the same badge twice is
+    impossible (unique constraint), so the row IS the proof.
+
+    Codes are namespaced strings, e.g. 'streak_7', 'streak_30',
+    'calibration_within_half', 'mock_test_complete', 'b2_vocab_500'.
+    Keeping them as strings (not enum) so new badges can ship without a
+    migration.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="badges")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    code = models.CharField(max_length=64, db_index=True)
+    title = models.CharField(max_length=120)
+    description = models.TextField(blank=True)
+    awarded_at = models.DateTimeField(auto_now_add=True)
+    payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "practice_badge"
+        ordering = ["-awarded_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "code"], name="unique_badge_per_user"),
+        ]
+        indexes = [
+            models.Index(fields=["user", "-awarded_at"]),
+        ]
+
+

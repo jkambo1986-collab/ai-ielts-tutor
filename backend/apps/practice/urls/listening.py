@@ -5,6 +5,7 @@ from rest_framework.routers import DefaultRouter
 
 from apps.practice.views.listening_ai import (
     EvaluateListeningAnswerView,
+    GenerateListeningDictationView,
     GenerateListeningTestView,
     SubmitListeningSessionView,
 )
@@ -15,6 +16,7 @@ router.register(r"sessions", ListeningSessionViewSet, basename="listening-sessio
 
 urlpatterns = [
     path("test", GenerateListeningTestView.as_view(), name="listening-test"),
+    path("dictation", GenerateListeningDictationView.as_view(), name="listening-dictation"),
     path("evaluate-answer", EvaluateListeningAnswerView.as_view(), name="listening-evaluate"),
     path("submit-session", SubmitListeningSessionView.as_view(), name="listening-submit"),
 ] + router.urls

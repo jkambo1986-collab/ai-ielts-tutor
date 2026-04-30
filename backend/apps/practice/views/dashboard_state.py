@@ -20,7 +20,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.practice.models import (
+    Badge,
     CalibrationEntry,
+    DailyChallenge,
     DashboardAlert,
     ErrorCard,
     MockTest,
@@ -247,6 +249,110 @@ class ErrorCardReviewView(APIView):
 
         card.save()
         return Response(ErrorCardSerializer(card).data)
+
+
+# -- Daily challenge + badges -- #
+
+_DAILY_CHALLENGE_PROMPTS = {
+    "writing": [
+        "Write 150 words on whether universities should prioritise research over teaching.",
+        "Describe a recent change in your community in 150 words. Include cause and effect.",
+        "Argue in 150 words: do remote work policies harm or help young workers?",
+    ],
+    "speaking": [
+        "Talk for 90 seconds: a tradition you find meaningful and why it matters.",
+        "Describe an item you've had for a long time. Why is it important to you?",
+        "What's a skill people undervalue, and how would you teach a beginner?",
+    ],
+    "reading": [
+        "Skim a 300-word article and identify the author's main argument in one sentence.",
+        "Summarise a news article's three key claims after a single read.",
+    ],
+    "listening": [
+        "Listen to a 90-second clip and write down the speaker's three main points.",
+        "Take notes on a short academic clip — focus on signposting words.",
+    ],
+}
+
+
+class DailyChallengeView(APIView):
+    """GET /api/v1/analytics/daily-challenge — today's challenge for this user.
+
+    Idempotent: hitting it multiple times returns the same row. The skill
+    rotates by day-of-year so a student who logs in every day touches all
+    four skills weekly. Completion is set when the FE reports a finished
+    session associated with this challenge."""
+
+    permission_classes = [IsAuthenticated]
+
+    SKILLS = ("writing", "speaking", "reading", "listening")
+
+    def get(self, request):
+        today = timezone.localtime(timezone.now()).date()
+        existing = DailyChallenge.objects.filter(
+            user=request.user, challenge_date=today,
+        ).first()
+        if existing:
+            return Response(self._serialize(existing))
+
+        # Pick skill by day-of-year, prompt by deterministic-ish hash.
+        skill = self.SKILLS[today.toordinal() % 4]
+        prompts = _DAILY_CHALLENGE_PROMPTS[skill]
+        prompt = prompts[today.toordinal() % len(prompts)]
+        challenge = DailyChallenge.objects.create(
+            user=request.user, institute=request.user.institute,
+            challenge_date=today, skill=skill, prompt=prompt,
+        )
+        return Response(self._serialize(challenge), status=201)
+
+    def post(self, request):
+        """Mark today's challenge as complete. Body: {session_id?}."""
+        today = timezone.localtime(timezone.now()).date()
+        challenge = DailyChallenge.objects.filter(
+            user=request.user, challenge_date=today,
+        ).first()
+        if not challenge:
+            return Response({"detail": "No challenge for today."}, status=404)
+        if challenge.completed_at:
+            return Response(self._serialize(challenge))
+        challenge.completed_at = timezone.now()
+        sid = request.data.get("session_id")
+        if sid:
+            try:
+                from uuid import UUID
+                challenge.session_id = UUID(str(sid))
+            except (TypeError, ValueError):
+                pass
+        challenge.save(update_fields=["completed_at", "session_id"])
+        return Response(self._serialize(challenge))
+
+    @staticmethod
+    def _serialize(c: DailyChallenge) -> dict:
+        return {
+            "id": str(c.id),
+            "date": c.challenge_date.isoformat(),
+            "skill": c.skill,
+            "prompt": c.prompt,
+            "completed_at": c.completed_at.isoformat() if c.completed_at else None,
+            "session_id": str(c.session_id) if c.session_id else None,
+        }
+
+
+class BadgesView(APIView):
+    """GET /api/v1/analytics/badges — list earned badges for the user."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rows = list(
+            Badge.objects.filter(user=request.user).order_by("-awarded_at").values(
+                "id", "code", "title", "description", "awarded_at", "payload",
+            )
+        )
+        for r in rows:
+            r["id"] = str(r["id"])
+            r["awarded_at"] = r["awarded_at"].isoformat()
+        return Response({"badges": rows, "count": len(rows)})
 
 
 # -- Streak status -- #

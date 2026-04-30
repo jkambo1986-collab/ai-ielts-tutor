@@ -19,8 +19,10 @@ EXEMPT_PATH_PREFIXES = (
     "/admin",
     "/api/healthz", "/api/v1/healthz",
     "/api/readyz", "/api/v1/readyz",
+    "/api/version", "/api/v1/version",  # diagnostic — no tenant context needed
     "/api/schema", "/api/v1/schema",
     "/api/share", "/api/v1/share",  # public share — token is the auth
+    "/api/predict", "/api/v1/predict",  # public score-predictor lead-gen tool
     "/static",
 )
 
