@@ -78,6 +78,10 @@ class StudentContext:
     # Calibration: avg(predicted - actual). Positive = over-predicts.
     avg_band_delta: float | None = None
 
+    # Streak — consecutive days with ≥1 session. Surfaced so agents can
+    # praise momentum or prompt recovery.
+    current_streak_days: int = 0
+
     # ----- Render helpers ----- #
 
     def is_empty(self) -> bool:
@@ -102,6 +106,7 @@ class StudentContext:
             or self.advanced_vocab_count
             or self.avg_band_delta is not None
             or self.days_until_exam is not None
+            or self.current_streak_days
         )
 
     def _l1_line(self) -> str:
@@ -201,6 +206,13 @@ class StudentContext:
             lines.append(
                 f"- Calibration: student systematically {direction} band by "
                 f"{abs(self.avg_band_delta):.1f} — be candid about the gap."
+            )
+
+        # Streak — surface only when it's worth acknowledging (≥3 days).
+        if self.current_streak_days >= 3 and focus in ("writing", "speaking", "general"):
+            lines.append(
+                f"- Practice streak: {self.current_streak_days} consecutive days — "
+                f"acknowledge the momentum without over-praising."
             )
 
         if len(lines) == 1:  # only the header, nothing to add
@@ -440,5 +452,12 @@ def build_for_user(user: "User") -> StudentContext:
             ctx.avg_band_delta = float(delta)
     except Exception:
         log.warning("StudentContext: calibration load failed", exc_info=True)
+
+    # ----- Streak ----- #
+    try:
+        from apps.practice.services.streaks import compute_streak
+        ctx.current_streak_days = compute_streak(user).get("current_days", 0)
+    except Exception:
+        log.warning("StudentContext: streak load failed", exc_info=True)
 
     return ctx

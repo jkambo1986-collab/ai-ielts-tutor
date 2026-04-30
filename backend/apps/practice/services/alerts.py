@@ -15,7 +15,11 @@ from typing import Iterable
 
 from django.utils import timezone
 
+from django.db import models
+from django.db.models import Avg
+
 from apps.practice.models import (
+    CalibrationEntry,
     DashboardAlert,
     ListeningSession,
     ReadingSession,
@@ -84,6 +88,69 @@ def _detect_regression(series: list[float]) -> float | None:
     return delta if delta <= -REGRESSION_THRESHOLD_BAND else None
 
 
+def _latest_writing_with_band(user) -> dict | None:
+    row = (
+        WritingSession.objects.filter(user=user, deleted_at__isnull=True)
+        .order_by("-created_at")
+        .values("id", "band_score")
+        .first()
+    )
+    if row and row.get("band_score") is not None:
+        return {"id": row["id"], "band": float(row["band_score"])}
+    return None
+
+
+def _latest_speaking_with_band(user) -> dict | None:
+    row = (
+        SpeakingSession.objects.filter(user=user, deleted_at__isnull=True, analysis__isnull=False)
+        .order_by("-created_at")
+        .values("id", "analysis")
+        .first()
+    )
+    if not row or not isinstance(row.get("analysis"), dict):
+        return None
+    band = row["analysis"].get("overallBandScore")
+    try:
+        return {"id": row["id"], "band": float(band)} if band is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _skill_avg_band(model_cls, user, skill: str) -> float | None:
+    """Average band for the user over the last 30 days, excluding the most
+    recent session. Returns None when there's not enough data."""
+    cutoff = timezone.now() - timedelta(days=30)
+    if skill == "writing":
+        bands = list(
+            model_cls.objects.filter(
+                user=user, deleted_at__isnull=True, created_at__gte=cutoff,
+            )
+            .order_by("-created_at")
+            .values_list("band_score", flat=True)
+        )
+        bands = [float(b) for b in bands if b is not None]
+    else:  # speaking — pull bands out of the analysis JSON
+        rows = list(
+            model_cls.objects.filter(
+                user=user, deleted_at__isnull=True, created_at__gte=cutoff,
+                analysis__isnull=False,
+            )
+            .order_by("-created_at")
+            .values_list("analysis", flat=True)
+        )
+        bands = []
+        for a in rows:
+            if isinstance(a, dict) and a.get("overallBandScore") is not None:
+                try:
+                    bands.append(float(a["overallBandScore"]))
+                except (TypeError, ValueError):
+                    pass
+    # Need ≥ 2 priors to be a meaningful "average".
+    if len(bands) < 3:
+        return None
+    return mean(bands[1:])  # skip the latest, that's the one we're comparing to
+
+
 def _last_session_at(user) -> timezone.datetime | None:
     candidates = []
     for model in (WritingSession, SpeakingSession, ReadingSession, ListeningSession):
@@ -136,6 +203,35 @@ def generate_alerts(user) -> list[DashboardAlert]:
             cta_target="Speaking",
         ))
 
+    # Streak lost — fired once when a ≥3-day streak just broke. Lives in
+    # the same alert table as regression/inactivity so the dashboard can
+    # surface them all in one ranked feed.
+    try:
+        from apps.practice.services.streaks import compute_streak
+        streak = compute_streak(user)
+        if streak.get("just_broken") and not _alert_exists(
+            user, DashboardAlert.TYPE_STREAK_LOST,
+        ):
+            created.append(DashboardAlert.objects.create(
+                user=user, institute=user.institute,
+                alert_type=DashboardAlert.TYPE_STREAK_LOST,
+                severity=DashboardAlert.SEVERITY_INFO,
+                title="Your practice streak ended",
+                body=(
+                    f"You had a {streak.get('longest_days', 0)}-day streak going. "
+                    "A 5-minute session today restarts it."
+                ),
+                payload={
+                    "longest_days": streak.get("longest_days", 0),
+                    "last_session_date": streak.get("last_session_date"),
+                },
+                cta_label="Restart your streak",
+                cta_target="Speaking",
+            ))
+    except Exception:
+        # Never let alert generation block on a streak hiccup.
+        pass
+
     # Inactivity
     last = _last_session_at(user)
     if last and (timezone.now() - last) > timedelta(days=INACTIVITY_DAYS):
@@ -149,6 +245,93 @@ def generate_alerts(user) -> list[DashboardAlert]:
                 payload={"last_session_at": last.isoformat()},
                 cta_label="Start a quick session",
                 cta_target="Speaking",
+            ))
+
+    # Re-attempt CTA — last writing/speaking session is ≥0.5 band below the
+    # 30-day average for that skill, AND no re-attempt of it exists yet.
+    # Surfaces a one-click "try this prompt again with these focus points"
+    # alert with payload.parent_session_id so the FE can prefill the form.
+    for skill, model_cls, latest in (
+        ("writing", WritingSession, _latest_writing_with_band(user)),
+        ("speaking", SpeakingSession, _latest_speaking_with_band(user)),
+    ):
+        if latest is None:
+            continue
+        latest_band = latest["band"]
+        avg = _skill_avg_band(model_cls, user, skill)
+        if avg is None or latest_band >= avg - 0.5:
+            continue
+        # Already alerted on THIS specific session?
+        if _alert_exists(
+            user, DashboardAlert.TYPE_QUICK_WIN,
+            {"kind": "reattempt", "parent_session_id": str(latest["id"])},
+        ):
+            continue
+        # Already re-attempted? Skip — student doesn't need the nudge.
+        if model_cls.objects.filter(user=user, parent_session_id=latest["id"]).exists():
+            continue
+        created.append(DashboardAlert.objects.create(
+            user=user, institute=user.institute,
+            alert_type=DashboardAlert.TYPE_QUICK_WIN,
+            severity=DashboardAlert.SEVERITY_INFO,
+            title=f"Re-attempt this {skill} session?",
+            body=(
+                f"Your latest {skill} session scored {latest_band} — "
+                f"about {round(avg - latest_band, 1)} band below your "
+                f"30-day average. A focused retry is a quick win."
+            ),
+            payload={
+                "kind": "reattempt",
+                "skill": skill,
+                "parent_session_id": str(latest["id"]),
+                "latest_band": float(latest_band),
+                "skill_avg": float(avg),
+            },
+            cta_label="Re-attempt",
+            cta_target=skill.capitalize(),
+        ))
+
+    # Calibration coaching — fires when the student systematically over- or
+    # under-predicts their band by ≥ 1.0 across the last 30 days. They get
+    # one alert per direction; if they swing the other way later, that's a
+    # different alert.
+    cutoff = timezone.now() - timedelta(days=30)
+    cal_stats = CalibrationEntry.objects.filter(
+        user=user, created_at__gte=cutoff,
+    ).aggregate(avg=Avg("delta"), n=models.Count("id"))
+    if (
+        cal_stats["n"] and cal_stats["n"] >= 3
+        and cal_stats["avg"] is not None
+        and abs(float(cal_stats["avg"])) >= 1.0
+    ):
+        avg_delta = float(cal_stats["avg"])
+        direction = "over" if avg_delta > 0 else "under"
+        if not _alert_exists(
+            user, DashboardAlert.TYPE_QUICK_WIN,
+            {"kind": "calibration", "direction": direction},
+        ):
+            created.append(DashboardAlert.objects.create(
+                user=user, institute=user.institute,
+                alert_type=DashboardAlert.TYPE_QUICK_WIN,
+                severity=DashboardAlert.SEVERITY_INFO,
+                title=(
+                    f"You {'over' if direction == 'over' else 'under'}-predict your band"
+                ),
+                body=(
+                    f"Across your last {cal_stats['n']} predictions you've been "
+                    f"{abs(avg_delta):.1f} band "
+                    f"{'higher' if direction == 'over' else 'lower'} than your actual "
+                    f"score. Knowing this gap is itself a band 7+ skill — try to "
+                    f"close it on your next prediction."
+                ),
+                payload={
+                    "kind": "calibration",
+                    "direction": direction,
+                    "avg_delta": avg_delta,
+                    "samples": int(cal_stats["n"]),
+                },
+                cta_label="Predict again",
+                cta_target="Writing" if direction == "over" else "Speaking",
             ))
 
     # Goal reached

@@ -14,7 +14,7 @@ from apps.practice.views.dashboard import DashboardAnalyticsView
 from apps.practice.views.dashboard_state import (
     AlertsView, AlertDismissView, CalibrationView, ErrorCardsView,
     ErrorCardReviewView, MockTestsView, ShareLinkView, ShareLinkRevokeView,
-    StudyPlanLatestView, VocabularyView,
+    StudyPlanLatestView, VocabularyView, WarmupView,
 )
 from apps.practice.views.scorecard import ReattemptDiffView, ScorecardView
 from apps.practice.views.ux import (
@@ -40,6 +40,7 @@ urlpatterns = [
     path("calibration", CalibrationView.as_view(), name="analytics-calibration"),
     path("share-links", ShareLinkView.as_view(), name="analytics-share-links"),
     path("share-links/<uuid:link_id>/revoke", ShareLinkRevokeView.as_view(), name="analytics-share-link-revoke"),
+    path("warmup", WarmupView.as_view(), name="analytics-warmup"),
     path("alerts", AlertsView.as_view(), name="analytics-alerts"),
     path("alerts/<uuid:alert_id>/dismiss", AlertDismissView.as_view(), name="analytics-alert-dismiss"),
 

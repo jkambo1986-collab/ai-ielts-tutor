@@ -205,8 +205,107 @@ class ErrorCardReviewView(APIView):
         # Auto-archive after 5 successful long-interval reviews.
         if card.repetitions >= 5 and card.interval_days >= 30:
             card.archived_at = timezone.now()
+
+        # Stuck-card escalation: if the student has reviewed a card many
+        # times but rarely gets it right, infinite repetition won't help.
+        # Archive it and surface a one-time alert so an instructor (or the
+        # student themselves) can intervene.
+        STUCK_REVIEW_THRESHOLD = 10
+        STUCK_CORRECT_RATE = 0.30
+        if (
+            card.archived_at is None
+            and card.review_count >= STUCK_REVIEW_THRESHOLD
+            and (card.correct_count / card.review_count) < STUCK_CORRECT_RATE
+        ):
+            card.archived_at = timezone.now()
+            try:
+                DashboardAlert.objects.create(
+                    user=request.user, institute=request.user.institute,
+                    alert_type=DashboardAlert.TYPE_QUICK_WIN,
+                    severity=DashboardAlert.SEVERITY_WARNING,
+                    title="A practice card needs a fresh approach",
+                    body=(
+                        f"You've reviewed this card {card.review_count} times but "
+                        f"only got it right {card.correct_count} times. We've "
+                        f"archived it — try learning the underlying rule another "
+                        f"way (a study plan task, instructor question, or fresh "
+                        f"writing prompt that exercises the same pattern)."
+                    ),
+                    payload={
+                        "kind": "stuck_card",
+                        "card_id": str(card.id),
+                        "category": card.category,
+                        "review_count": card.review_count,
+                        "correct_count": card.correct_count,
+                    },
+                    cta_label="See alternatives",
+                    cta_target="StudyPlan",
+                )
+            except Exception:
+                # Never let alert creation block the review write.
+                pass
+
         card.save()
         return Response(ErrorCardSerializer(card).data)
+
+
+# -- Pre-session SRS warmup -- #
+
+class WarmupView(APIView):
+    """GET /api/v1/analytics/warmup?session_type=writing|speaking|reading|listening
+
+    Returns a compact snapshot the FE shows BEFORE the student starts a
+    session: how many SRS cards are due, which categories dominate, and a
+    handful of card IDs to cycle through as a 30-second warm-up. Connecting
+    SRS → upcoming session is the highest-leverage retention loop we have;
+    the student arrives at their session already primed on their own
+    recurring patterns.
+
+    `session_type` is optional. When provided, we down-rank cards from
+    unrelated categories so a student about to write doesn't get nudged on
+    a pure pronunciation card. We don't filter — we order — because at the
+    end of the day every card is worth seeing.
+    """
+    permission_classes = [IsAuthenticated]
+
+    # When the student is about to do skill X, the FE should show cards
+    # from these categories first.
+    _CATEGORY_PRIORITY = {
+        "writing": ["grammar", "lexical", "coherence", "task_response"],
+        "speaking": ["pronunciation", "fluency", "lexical", "grammar"],
+        "reading": ["lexical", "grammar"],
+        "listening": ["lexical", "fluency"],
+    }
+
+    def get(self, request):
+        session_type = (request.query_params.get("session_type") or "").lower()
+        priority = self._CATEGORY_PRIORITY.get(session_type)
+
+        cards = list(
+            _user_qs(ErrorCard, request)
+            .filter(archived_at__isnull=True, due_at__lte=timezone.now())
+            .order_by("due_at")[:20]
+        )
+        # Re-rank by category priority when caller specified a session type.
+        if priority:
+            order = {c: i for i, c in enumerate(priority)}
+            cards.sort(key=lambda c: order.get(c.category, 99))
+
+        # Aggregate by category for the headline summary.
+        category_counts: dict[str, int] = {}
+        for c in cards:
+            category_counts[c.category] = category_counts.get(c.category, 0) + 1
+
+        suggested = cards[:3]
+        return Response({
+            "due_srs_count": len(cards),
+            "due_categories": [
+                {"category": k, "count": v}
+                for k, v in sorted(category_counts.items(), key=lambda kv: -kv[1])
+            ],
+            "suggested_cards": ErrorCardSerializer(suggested, many=True).data,
+            "session_type": session_type or None,
+        })
 
 
 # -- Mock tests (#20) -- #
