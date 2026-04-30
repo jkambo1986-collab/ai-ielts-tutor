@@ -7,6 +7,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.ai import service as ai_service
+from apps.ai.context import build_for_user
 from apps.billing import features
 from apps.billing.features import requires_feature
 
@@ -30,6 +31,7 @@ class GenerateIntegratedTaskView(APIView):
         task = ai_service.generate_integrated_task(
             task_type=s.validated_data["task_type"],
             target_score=s.validated_data.get("target_score"),
+            ctx=build_for_user(request.user),
         )
         return Response({"task": task})
 
@@ -51,6 +53,7 @@ class EvaluateSummaryView(APIView):
         evaluation = ai_service.evaluate_summary(
             lecture_script=s.validated_data["lecture_script"],
             summary=s.validated_data["summary"],
+            ctx=build_for_user(request.user),
         )
         return Response({"evaluation": evaluation})
 
@@ -74,5 +77,6 @@ class EvaluateSynthesisView(APIView):
             passage=s.validated_data["passage"],
             lecture_script=s.validated_data["lecture_script"],
             writing_response=s.validated_data["writing_response"],
+            ctx=build_for_user(request.user),
         )
         return Response({"evaluation": evaluation})

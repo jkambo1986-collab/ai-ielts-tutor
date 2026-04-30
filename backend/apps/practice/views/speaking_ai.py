@@ -7,6 +7,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.ai import service as ai_service
+from apps.ai.context import build_for_user
 from apps.billing import features
 from apps.billing.features import PaymentRequired, requires_feature, user_has_feature
 from apps.practice.models import CalibrationEntry, SpeakingSession, VocabularyObservation
@@ -112,6 +113,7 @@ class StartSessionView(APIView):
             proficiency=request.user.english_proficiency_level or None,
             prompt=session.prompt,
             cue_card=session.cue_card,
+            ctx=build_for_user(request.user),
         )
         return Response(
             {
@@ -159,7 +161,9 @@ class EndSessionView(APIView):
                 t.get("text", "") for t in session.transcript if t.get("speaker") == "user"
             )
             if len(user_text) > 30:
-                analysis = ai_service.analyze_speaking_performance(user_text, session.mode)
+                analysis = ai_service.analyze_speaking_performance(
+                    user_text, session.mode, ctx=build_for_user(request.user),
+                )
                 session.analysis = analysis
 
         # Fluency metrics (#26)
@@ -273,6 +277,7 @@ class AnalyzeTranscriptView(APIView):
         s.is_valid(raise_exception=True)
         analysis = ai_service.analyze_speaking_performance(
             transcript=s.validated_data["transcript"], mode=s.validated_data["mode"],
+            ctx=build_for_user(request.user),
         )
 
         sid = s.validated_data.get("session_id")
@@ -308,7 +313,9 @@ class ContextualSpeakingPromptsView(APIView):
             .order_by("-created_at")
             .values("title")[:5]
         )
-        prompts = ai_service.generate_contextual_speaking_prompts(reading, listening)
+        prompts = ai_service.generate_contextual_speaking_prompts(
+            reading, listening, ctx=build_for_user(request.user),
+        )
         return Response({"prompts": prompts})
 
 
@@ -327,5 +334,7 @@ class PronunciationPracticeView(APIView):
     def post(self, request):
         s = _PronunciationInput(data=request.data)
         s.is_valid(raise_exception=True)
-        practice = ai_service.generate_pronunciation_practice(s.validated_data)
+        practice = ai_service.generate_pronunciation_practice(
+            s.validated_data, ctx=build_for_user(request.user),
+        )
         return Response({"practice": practice})

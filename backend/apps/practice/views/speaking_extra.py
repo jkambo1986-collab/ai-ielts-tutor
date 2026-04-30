@@ -35,6 +35,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.ai import service as ai_service
+from apps.ai.context import build_for_user
 from apps.practice.models import (
     CueCard, SessionAnnotation, SpeakingSession,
 )
@@ -454,6 +455,7 @@ class ShadowAnalyzeView(APIView):
             answer=s.validated_data["user_answer"],
             target_band=s.validated_data.get("target_band", 7.0),
             native_language=l1,
+            ctx=build_for_user(request.user),
         )
         return Response({"analysis": analysis})
 
@@ -482,6 +484,7 @@ class WhisperHintView(APIView):
             so_far=s.validated_data.get("user_so_far", ""),
             native_language=request.user.native_language,
             target_band=float(request.user.target_score or 7.0),
+            ctx=build_for_user(request.user),
         )
         # Track usage on session.mock_state for transparency.
         state = session.mock_state or {}
@@ -512,5 +515,6 @@ class Band7RephraseView(APIView):
         result = ai_service.band7_rephrase(
             user_text=s.validated_data["user_text"],
             question=s.validated_data.get("question") or "",
+            ctx=build_for_user(request.user),
         )
         return Response(result)

@@ -7,6 +7,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.ai import service as ai_service
+from apps.ai.context import build_for_user
 from apps.practice.models import ListeningSession
 
 LISTENING_TYPES = ["Dialogue", "Monologue", "Lecture"]
@@ -28,6 +29,7 @@ class GenerateListeningTestView(APIView):
         test = ai_service.generate_listening_test(
             target_score=s.validated_data.get("target_score"),
             test_type=s.validated_data["test_type"],
+            ctx=build_for_user(request.user),
         )
         return Response({"test": test})
 
@@ -54,6 +56,7 @@ class EvaluateListeningAnswerView(APIView):
             options=s.validated_data["options"],
             user_answer=s.validated_data["user_answer"],
             correct_answer=s.validated_data["correct_answer"],
+            ctx=build_for_user(request.user),
         )
         return Response({"evaluation": evaluation})
 

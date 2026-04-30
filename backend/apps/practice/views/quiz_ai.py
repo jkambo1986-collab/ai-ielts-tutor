@@ -7,6 +7,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.ai import service as ai_service
+from apps.ai.context import build_for_user
 
 
 class _GenerateInput(serializers.Serializer):
@@ -21,7 +22,9 @@ class GenerateQuizView(APIView):
     def post(self, request):
         s = _GenerateInput(data=request.data)
         s.is_valid(raise_exception=True)
-        quiz = ai_service.generate_quiz(s.validated_data["difficulty"])
+        quiz = ai_service.generate_quiz(
+            s.validated_data["difficulty"], ctx=build_for_user(request.user),
+        )
         return Response({"quiz": quiz})
 
 
@@ -41,5 +44,6 @@ class RephraseExplanationView(APIView):
         explanation = ai_service.rephrase_explanation(
             question=s.validated_data["question"],
             original_explanation=s.validated_data["original_explanation"],
+            ctx=build_for_user(request.user),
         )
         return Response({"explanation": explanation})

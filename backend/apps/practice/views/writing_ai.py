@@ -8,6 +8,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.ai import service as ai_service
+from apps.ai.context import build_for_user
 from apps.billing import features
 from apps.billing.features import requires_feature
 from apps.practice.models import VocabularyObservation, WritingSession
@@ -43,6 +44,7 @@ class EvaluateWritingView(APIView):
             prompt=s.validated_data["prompt"],
             essay=s.validated_data["essay"],
             target_score=s.validated_data.get("target_score"),
+            ctx=build_for_user(request.user),
         )
 
         essay = s.validated_data["essay"]
@@ -139,6 +141,7 @@ class EssayPlanView(APIView):
         plan = ai_service.generate_essay_plan(
             prompt=s.validated_data["prompt"],
             user_ideas=s.validated_data["user_ideas"],
+            ctx=build_for_user(request.user),
         )
         return Response({"plan": plan})
 
@@ -160,6 +163,7 @@ class CohesionAnalysisView(APIView):
         cohesion_map = ai_service.analyze_cohesion(
             prompt=s.validated_data["prompt"],
             essay=s.validated_data["essay"],
+            ctx=build_for_user(request.user),
         )
         return Response({"map": cohesion_map})
 
@@ -183,5 +187,7 @@ class ContextualWritingPromptsView(APIView):
             .order_by("-created_at")
             .values("title")[:5]
         )
-        prompts = ai_service.generate_contextual_writing_prompts(reading, listening)
+        prompts = ai_service.generate_contextual_writing_prompts(
+            reading, listening, ctx=build_for_user(request.user),
+        )
         return Response({"prompts": prompts})

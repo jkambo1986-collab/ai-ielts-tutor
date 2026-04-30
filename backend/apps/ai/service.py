@@ -18,12 +18,26 @@ from typing import Any, Optional
 
 from apps.ai import schemas
 from apps.ai.client import get_client
+from apps.ai.context import StudentContext
 from apps.ai.exceptions import AIError
 
 log = logging.getLogger(__name__)
 
 
 # -- Helpers -- #
+
+def _ctx_block(ctx: Optional[StudentContext], focus: str = "general") -> str:
+    """Render a `StudentContext` slice as a prompt fragment (or empty string).
+
+    Agents call this once and splice the result into their prompt — usually
+    right after the system directive, before the task-specific input. When
+    `ctx` is None or empty, returns "" so the prompt is unchanged.
+    """
+    if ctx is None:
+        return ""
+    block = ctx.prompt_block(focus=focus)
+    return f"\n\n{block}\n" if block else ""
+
 
 def _target_score_clause(target_score: Optional[float], variant: str = "writing") -> str:
     if not target_score:
@@ -44,13 +58,20 @@ def _target_score_clause(target_score: Optional[float], variant: str = "writing"
 
 # -- Writing -- #
 
-def evaluate_writing(prompt: str, essay: str, target_score: Optional[float]) -> dict:
+def evaluate_writing(
+    prompt: str,
+    essay: str,
+    target_score: Optional[float],
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     target_clause = _target_score_clause(target_score, variant="writing")
-    full_prompt = f"""You are an expert IELTS examiner and language coach. Evaluate the following essay based on the provided prompt. {target_clause}
-1.  Provide a detailed, constructive analysis for each of the four official IELTS assessment criteria. For each criterion, identify and quote specific sentences from the user's essay that your feedback is based on (as 'relevantSentences'). If a piece of feedback is about something missing or cannot be tied to a specific sentence, provide a generic example sentence to illustrate your point (as 'exampleSentences'). Prioritize using 'relevantSentences' wherever possible.
+    context_block = _ctx_block(ctx, focus="writing")
+    full_prompt = f"""You are an expert IELTS examiner and language coach. Evaluate the following essay based on the provided prompt. {target_clause}{context_block}
+1.  Provide a detailed, constructive analysis for each of the four official IELTS assessment criteria. For each criterion, identify and quote specific sentences from the user's essay that your feedback is based on (as 'relevantSentences'). If a piece of feedback is about something missing or cannot be tied to a specific sentence, provide a generic example sentence to illustrate your point (as 'exampleSentences'). Prioritize using 'relevantSentences' wherever possible. When the student has recurring weaknesses listed in the STUDENT CONTEXT, prioritise feedback that addresses those patterns.
 2.  Assign an overall band score.
 3.  Offer specific, actionable suggestions for improvement.
-4.  As a language coach, identify 3-5 sentences that are grammatically correct but could be rephrased with more advanced, topic-specific, or idiomatic vocabulary to achieve a higher band score.
+4.  As a language coach, identify 3-5 sentences that are grammatically correct but could be rephrased with more advanced, topic-specific, or idiomatic vocabulary to achieve a higher band score. If target vocabulary is listed in the STUDENT CONTEXT, prefer suggestions that reinforce those lemmas.
 5.  Respond ONLY in the requested JSON format.
 
 IELTS Writing Task 2 Prompt: "{prompt}"
@@ -60,8 +81,14 @@ User's Essay:
     return get_client().generate_json(full_prompt, schemas.WRITING_FEEDBACK_SCHEMA)
 
 
-def generate_essay_plan(prompt: str, user_ideas: str) -> dict:
-    full_prompt = f"""You are an expert IELTS writing coach. A student needs help planning their Task 2 essay. Based on the prompt and their initial ideas, generate a clear, logical essay plan. The plan should include a strong thesis statement and 2-3 body paragraphs, each with a clear main point and supporting examples.
+def generate_essay_plan(
+    prompt: str,
+    user_ideas: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    context_block = _ctx_block(ctx, focus="writing")
+    full_prompt = f"""You are an expert IELTS writing coach. A student needs help planning their Task 2 essay. Based on the prompt and their initial ideas, generate a clear, logical essay plan. The plan should include a strong thesis statement and 2-3 body paragraphs, each with a clear main point and supporting examples. If the STUDENT CONTEXT lists recurring weaknesses or target vocabulary, weave the plan so that the eventual essay naturally exercises them.{context_block}
 
 Respond ONLY in the requested JSON format.
 
@@ -71,8 +98,14 @@ Student's Initial Ideas: "{user_ideas}\""""
     return get_client().generate_json(full_prompt, schemas.ESSAY_PLAN_SCHEMA)
 
 
-def analyze_cohesion(prompt: str, essay: str) -> dict:
-    full_prompt = f"""You are an expert in academic writing structure and logic. Your task is to analyze the following essay and deconstruct it into a logical map of ideas. Identify the core thesis, the main point of each body paragraph, and the key supporting points for each main idea. Then, evaluate the cohesive links between these ideas.
+def analyze_cohesion(
+    prompt: str,
+    essay: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    context_block = _ctx_block(ctx, focus="writing")
+    full_prompt = f"""You are an expert in academic writing structure and logic. Your task is to analyze the following essay and deconstruct it into a logical map of ideas. Identify the core thesis, the main point of each body paragraph, and the key supporting points for each main idea. Then, evaluate the cohesive links between these ideas.{context_block}
 
 1.  **Nodes Identification**:
     *   Identify the single main **thesis statement**.
@@ -114,33 +147,62 @@ _LISTENING_TYPE_INSTRUCTIONS = {
 }
 
 
-def generate_reading_test(target_score: Optional[float], test_type: str) -> dict:
+def generate_reading_test(
+    target_score: Optional[float],
+    test_type: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     type_instr = _READING_TYPE_INSTRUCTIONS.get(test_type, _READING_TYPE_INSTRUCTIONS["Full Passage"])
     target_clause = _target_score_clause(target_score, variant="reading")
+    context_block = _ctx_block(ctx, focus="reading")
     full_prompt = (
         f"You are an expert IELTS content creator. {type_instr} {target_clause} "
         f"The topic should be academic and engaging, related to science, technology, or the environment. "
+        f"If the STUDENT CONTEXT lists recently read topics, AVOID overlapping with them — choose a fresh adjacent topic. "
+        f"If target vocabulary is listed, naturally include 3-5 of those lemmas in the passage so the student gets repeat exposure. "
         f"Ensure the questions test a range of reading skills. Respond in the requested JSON format."
+        f"{context_block}"
     )
     return get_client().generate_json(full_prompt, schemas.READING_TEST_SCHEMA)
 
 
-def generate_listening_test(target_score: Optional[float], test_type: str) -> dict:
+def generate_listening_test(
+    target_score: Optional[float],
+    test_type: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     type_instr = _LISTENING_TYPE_INSTRUCTIONS.get(test_type, _LISTENING_TYPE_INSTRUCTIONS["Dialogue"])
     target_clause = _target_score_clause(target_score, variant="reading")
+    context_block = _ctx_block(ctx, focus="listening")
     full_prompt = (
         f"You are an expert IELTS content creator. Generate a complete listening test. "
         f"{target_clause} {type_instr} After the script, create 3-4 multiple-choice questions "
-        f"that test the listener's comprehension. Respond ONLY in the requested JSON format."
+        f"that test the listener's comprehension. If the STUDENT CONTEXT lists recently heard topics, "
+        f"AVOID them — choose a different domain. If target vocabulary is listed, weave 2-4 of those lemmas into the script naturally. "
+        f"Respond ONLY in the requested JSON format."
+        f"{context_block}"
     )
     return get_client().generate_json(full_prompt, schemas.LISTENING_TEST_SCHEMA)
 
 
-def _evaluate_mcq(context_text: str, context_type: str, question: str, options: list, user_answer: str, correct_answer: str) -> dict:
+def _evaluate_mcq(
+    context_text: str,
+    context_type: str,
+    question: str,
+    options: list,
+    user_answer: str,
+    correct_answer: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+    focus: str = "general",
+) -> dict:
     user_answer_text = next((o for o in options if o.startswith(user_answer)), f"Option {user_answer}")
     correct_answer_text = next((o for o in options if o.startswith(correct_answer)), f"Option {correct_answer}")
     options_block = "\n".join(options)
-    full_prompt = f"""You are an expert IELTS tutor. A student has answered a multiple-choice question. Your task is to evaluate their answer and provide a detailed, pedagogical explanation. Respond in the requested JSON format.
+    context_block = _ctx_block(ctx, focus=focus)
+    full_prompt = f"""You are an expert IELTS tutor. A student has answered a multiple-choice question. Your task is to evaluate their answer and provide a detailed, pedagogical explanation. Respond in the requested JSON format.{context_block}
 
 {context_type}: \"\"\"{context_text}\"\"\"
 
@@ -158,23 +220,51 @@ Evaluation Guidance:
    - If CORRECT: Briefly explain why the answer is correct, quoting the relevant part of the {context_type.lower()}.
    - If INCORRECT: This is a teaching opportunity. Provide a two-part explanation:
      a) First, explain exactly why the user's chosen answer is a tempting but incorrect "distractor". Refer to specific parts of the text that might mislead them.
-     b) Second, explain why the correct answer is the right one, again quoting the supporting evidence from the {context_type.lower()}."""
+     b) Second, explain why the correct answer is the right one, again quoting the supporting evidence from the {context_type.lower()}.
+3. If the STUDENT CONTEXT lists recurring weaknesses or active error categories that line up with the mistake, briefly tie the lesson back to that pattern."""
     return get_client().generate_json(full_prompt, schemas.ANSWER_EVALUATION_SCHEMA)
 
 
-def evaluate_reading_answer(passage: str, question: str, options: list, user_answer: str, correct_answer: str) -> dict:
-    return _evaluate_mcq(passage, "Passage", question, options, user_answer, correct_answer)
+def evaluate_reading_answer(
+    passage: str,
+    question: str,
+    options: list,
+    user_answer: str,
+    correct_answer: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    return _evaluate_mcq(
+        passage, "Passage", question, options, user_answer, correct_answer,
+        ctx=ctx, focus="reading",
+    )
 
 
-def evaluate_listening_answer(script: list, question: str, options: list, user_answer: str, correct_answer: str) -> dict:
+def evaluate_listening_answer(
+    script: list,
+    question: str,
+    options: list,
+    user_answer: str,
+    correct_answer: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     """`script` is a list of {speaker, text} dicts."""
     full_script = "\n".join(f"{p['speaker']}: {p['text']}" for p in script)
-    return _evaluate_mcq(full_script, "Audio Script", question, options, user_answer, correct_answer)
+    return _evaluate_mcq(
+        full_script, "Audio Script", question, options, user_answer, correct_answer,
+        ctx=ctx, focus="listening",
+    )
 
 
 # -- Speaking -- #
 
-def analyze_speaking_performance(transcript: str, mode: str = "Standard") -> dict:
+def analyze_speaking_performance(
+    transcript: str,
+    mode: str = "Standard",
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     role_play_clause = ""
     if mode == "RolePlay":
         role_play_clause = """
@@ -185,13 +275,14 @@ Because this was a role-play debate session, you MUST also provide specific feed
 - Agree or disagree politely and effectively.
 - Use persuasive language.
 Quote a specific example from the transcript that illustrates your feedback."""
+    context_block = _ctx_block(ctx, focus="speaking")
     full_prompt = f"""// SYSTEM DIRECTIVE: ACTIVATE IELTS TUTOR PROTOCOL
 Persona: `Δ-IELTS_MASTER v8.0`
-Core Directive: You are a world-class IELTS speaking examiner. Your purpose is to deliver a precise, rubric-based evaluation of a user's speaking performance based on a provided transcript.
+Core Directive: You are a world-class IELTS speaking examiner. Your purpose is to deliver a precise, rubric-based evaluation of a user's speaking performance based on a provided transcript.{context_block}
 
 // TASK: ANALYZE_AND_GRADE_SPEAKING
 Analyze the following transcript based on the four official IELTS speaking assessment criteria. For each criterion, you MUST provide:
-1.  **Detailed, constructive feedback**: Explain the user's strengths and weaknesses for that criterion.
+1.  **Detailed, constructive feedback**: Explain the user's strengths and weaknesses for that criterion. When the STUDENT CONTEXT lists recurring weaknesses or active error patterns, prioritise feedback that ties back to those patterns.
 2.  **A specific, verbatim example**: Quote a phrase directly from the user's transcript that illustrates your feedback point. This is mandatory.
 You must also estimate an overall band score. Maintain rubric neutrality and filter out sensitive topics.
 
@@ -210,10 +301,15 @@ Respond ONLY in the requested JSON format.
     return get_client().generate_json(full_prompt, schemas.SPEAKING_ANALYSIS_SCHEMA)
 
 
-def generate_pronunciation_practice(analysis: dict) -> dict:
+def generate_pronunciation_practice(
+    analysis: dict,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     """analysis: { targetPhoneme, problemWords, explanation }"""
     problem_words = ", ".join(analysis.get("problemWords", []))
-    full_prompt = f"""You are an expert IELTS pronunciation coach. A student needs targeted practice for a specific sound they struggle with. Based on the analysis provided, generate a set of practice exercises. The exercises should be simple, clear, and effective for a non-native English speaker.
+    context_block = _ctx_block(ctx, focus="speaking")
+    full_prompt = f"""You are an expert IELTS pronunciation coach. A student needs targeted practice for a specific sound they struggle with. Based on the analysis provided, generate a set of practice exercises. The exercises should be simple, clear, and effective for a non-native English speaker.{context_block}
 
 Analysis of Student's Error:
 - Target Sound: {analysis['targetPhoneme']}
@@ -230,17 +326,29 @@ Respond ONLY in the requested JSON format."""
 
 # -- Quiz -- #
 
-def generate_quiz(difficulty: str) -> dict:
+def generate_quiz(
+    difficulty: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    context_block = _ctx_block(ctx, focus="quiz")
     full_prompt = f"""You are an expert IELTS content creator. Generate a 5-question multiple-choice quiz on IELTS vocabulary and grammar. The difficulty level should be '{difficulty}'.
 - For 'Easy', focus on common vocabulary and fundamental grammar (e.g., tenses, prepositions). This is suitable for band scores 4.0-5.5.
 - For 'Medium', use more advanced vocabulary (e.g., phrasal verbs, idioms) and complex sentence structures. This is suitable for band scores 6.0-7.0.
 - For 'Hard', use sophisticated, topic-specific vocabulary and advanced grammatical concepts (e.g., conditionals, inversions). This is suitable for band scores 7.5-9.0.
-Each question should have a clear explanation. Respond ONLY in the requested JSON format."""
+If the STUDENT CONTEXT lists active error categories, recurring weaknesses, or target vocabulary, bias at least 2-3 of the 5 questions to drill those areas — this is the primary lever for personalisation.
+Each question should have a clear explanation. Respond ONLY in the requested JSON format.{context_block}"""
     return get_client().generate_json(full_prompt, schemas.QUIZ_SCHEMA)
 
 
-def rephrase_explanation(question: str, original_explanation: str) -> str:
-    full_prompt = f"""You are an expert IELTS tutor. A student needs a simpler explanation for a quiz question. Rephrase the following explanation in simpler, clearer terms. Focus on the core concept and avoid jargon where possible.
+def rephrase_explanation(
+    question: str,
+    original_explanation: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> str:
+    context_block = _ctx_block(ctx, focus="quiz")
+    full_prompt = f"""You are an expert IELTS tutor. A student needs a simpler explanation for a quiz question. Rephrase the following explanation in simpler, clearer terms. Focus on the core concept and avoid jargon where possible. Tune the simplification to the student's proficiency level if listed in the STUDENT CONTEXT.{context_block}
 
 Question: "{question}"
 
@@ -280,7 +388,12 @@ def _l1_hint(native_language: str | None) -> str:
     return _L1_HINT_TEMPLATE.format(label=label, code=native_language)
 
 
-def analyze_weaknesses(history: list[dict], *, native_language: str | None = None) -> dict:
+def analyze_weaknesses(
+    history: list[dict],
+    *,
+    native_language: str | None = None,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     """history: list of feedback objects (writing). The TS code only sends the
     .feedback field, not the whole session — we mirror that to keep tokens down.
 
@@ -289,11 +402,12 @@ def analyze_weaknesses(history: list[dict], *, native_language: str | None = Non
     """
     feedback_only = [s.get("feedback", s) for s in history]
     l1 = _l1_hint(native_language)
+    context_block = _ctx_block(ctx, focus="writing")
     full_prompt = f"""You are an expert IELTS writing coach. I have provided you with the JSON feedback from a student's past {len(feedback_only)} writing sessions.
 
-{l1}
+{l1}{context_block}
 
-Analyze the feedback across all sessions to identify the top 2-3 most significant and recurring weaknesses. For each weakness, provide a concise summary and one concrete, actionable suggestion for improvement. Do not comment on their strengths, only their weaknesses.
+Analyze the feedback across all sessions to identify the top 2-3 most significant and recurring weaknesses. For each weakness, provide a concise summary and one concrete, actionable suggestion for improvement. Do not comment on their strengths, only their weaknesses. If the STUDENT CONTEXT shows existing speaking weaknesses or active SRS error categories, prefer summaries that connect across skills (a coherent cross-skill pattern is more valuable than isolated micro-errors).
 
 Respond ONLY in the requested JSON format.
 
@@ -302,13 +416,19 @@ Past Feedback Data:
     return get_client().generate_json(full_prompt, schemas.WEAKNESS_ANALYSIS_SCHEMA)
 
 
-def analyze_speaking_weaknesses(analyses: list[dict], *, native_language: str | None = None) -> dict:
+def analyze_speaking_weaknesses(
+    analyses: list[dict],
+    *,
+    native_language: str | None = None,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     l1 = _l1_hint(native_language)
+    context_block = _ctx_block(ctx, focus="speaking")
     full_prompt = f"""You are an expert IELTS speaking coach. I have provided JSON feedback from a student's past {len(analyses)} speaking sessions.
 
-{l1}
+{l1}{context_block}
 
-Analyze the feedback to identify the top 2-3 most significant recurring weaknesses in their performance across all criteria (Fluency, Lexical Resource, Grammar, Pronunciation). For each weakness, provide a concise summary and one concrete, actionable suggestion for improvement.
+Analyze the feedback to identify the top 2-3 most significant recurring weaknesses in their performance across all criteria (Fluency, Lexical Resource, Grammar, Pronunciation). For each weakness, provide a concise summary and one concrete, actionable suggestion for improvement. If the STUDENT CONTEXT lists existing writing weaknesses, prefer surfacing cross-skill patterns (e.g. the same grammar gap showing in both writing and speaking).
 
 Respond ONLY in the requested JSON format.
 
@@ -317,11 +437,16 @@ Past Speaking Feedback Data:
     return get_client().generate_json(full_prompt, schemas.SPEAKING_WEAKNESS_ANALYSIS_SCHEMA)
 
 
-def get_comprehensive_analysis(performance_summary: dict) -> dict:
+def get_comprehensive_analysis(
+    performance_summary: dict,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    context_block = _ctx_block(ctx, focus="general")
     full_prompt = f"""You are an expert IELTS coach providing a high-level summary for a student. Based on the following performance data, provide a single, concise, and encouraging paragraph of analysis. In this paragraph, you must:
 1.  Highlight the student's single greatest strength based on the data.
-2.  Identify the single most important area they should focus on next for the biggest improvement.
-3.  Maintain a positive and motivational tone.
+2.  Identify the single most important area they should focus on next for the biggest improvement. Use the STUDENT CONTEXT to make this concrete — name the actual recurring pattern (writing/speaking weakness, error category) rather than a generic suggestion.
+3.  Maintain a positive and motivational tone.{context_block}
 
 Respond ONLY in the requested JSON format with a single 'analysis' key.
 
@@ -332,10 +457,15 @@ Performance Data:
 
 # -- Study plan -- #
 
-def generate_study_plan(performance_data: dict) -> dict:
-    full_prompt = f"""You are an expert IELTS coach. A student needs a personalized 7-day study plan. Analyze their performance data below to identify their biggest areas for improvement and create a balanced, actionable plan.
+def generate_study_plan(
+    performance_data: dict,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    context_block = _ctx_block(ctx, focus="general")
+    full_prompt = f"""You are an expert IELTS coach. A student needs a personalized 7-day study plan. Analyze their performance data below to identify their biggest areas for improvement and create a balanced, actionable plan.{context_block}
 
-The plan should be encouraging and focus on making steady progress. For each day, provide a clear 'focus' area and a specific 'task' the user should complete using their practice application's features (like 'Writing Tutor', 'Speaking Tutor', 'Cohesion Mapper', 'Role-play mode', etc.). Ensure a mix of skills throughout the week.
+The plan should be encouraging and focus on making steady progress. For each day, provide a clear 'focus' area and a specific 'task' the user should complete using their practice application's features (like 'Writing Tutor', 'Speaking Tutor', 'Cohesion Mapper', 'Role-play mode', etc.). Ensure a mix of skills throughout the week. When the STUDENT CONTEXT lists recurring weaknesses, active error categories, or target vocabulary, schedule at least 3 of the 7 days to specifically drill those — that is the highest-leverage use of the student's time. If days_until_exam is set and short, weight the plan towards mock-exam practice.
 
 Respond ONLY in the requested JSON format.
 
@@ -366,20 +496,35 @@ _INTEGRATED_TASK_CONFIG = {
 }
 
 
-def generate_integrated_task(task_type: str, target_score: Optional[float]) -> dict:
+def generate_integrated_task(
+    task_type: str,
+    target_score: Optional[float],
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     if task_type not in _INTEGRATED_TASK_CONFIG:
         raise AIError(f"Unknown integrated task type: {task_type}", is_fatal=True)
     cfg = _INTEGRATED_TASK_CONFIG[task_type]
     target_clause = _target_score_clause(target_score, variant="reading")
+    context_block = _ctx_block(ctx, focus="integrated")
     full_prompt = (
         f"You are an expert IELTS content creator. {cfg['instruction']} {target_clause} "
+        f"If the STUDENT CONTEXT lists recently read or heard topics, AVOID them — choose a fresh adjacent domain. "
+        f"If target vocabulary is listed, weave 3-5 of those lemmas into the source materials naturally. "
         f"Respond ONLY in the requested JSON format."
+        f"{context_block}"
     )
     return get_client().generate_json(full_prompt, cfg["schema"])
 
 
-def evaluate_summary(lecture_script: str, summary: str) -> dict:
-    full_prompt = f"""You are an expert IELTS examiner. Evaluate the student's summary of the provided lecture script. Assess them on three key criteria:
+def evaluate_summary(
+    lecture_script: str,
+    summary: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    context_block = _ctx_block(ctx, focus="integrated")
+    full_prompt = f"""You are an expert IELTS examiner. Evaluate the student's summary of the provided lecture script. Assess them on three key criteria:{context_block}
 1.  **Content**: Did they accurately capture the main ideas and key supporting points?
 2.  **Conciseness**: Is the summary brief and to the point, avoiding unnecessary details?
 3.  **Paraphrasing**: Did they use their own words and sentence structures effectively?
@@ -402,8 +547,15 @@ Respond ONLY in the requested JSON format.
     return get_client().generate_json(full_prompt, schemas.SUMMARY_EVALUATION_SCHEMA)
 
 
-def evaluate_synthesis(passage: str, lecture_script: str, writing_response: str) -> dict:
-    full_prompt = f"""You are an expert IELTS examiner evaluating an integrated skills task. The student was required to read a passage, listen to a lecture, and then write a response synthesizing information from both.
+def evaluate_synthesis(
+    passage: str,
+    lecture_script: str,
+    writing_response: str,
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    context_block = _ctx_block(ctx, focus="integrated")
+    full_prompt = f"""You are an expert IELTS examiner evaluating an integrated skills task. The student was required to read a passage, listen to a lecture, and then write a response synthesizing information from both.{context_block}
 
 Your task is to evaluate their written response based on the following criteria:
 1.  **Content Accuracy (Reading)**: Did they accurately identify and represent the key points from the reading passage?
@@ -449,12 +601,18 @@ def _topics_from_history(reading_history: list[dict], listening_history: list[di
     return topics[:5]
 
 
-def generate_contextual_speaking_prompts(reading_history: list[dict], listening_history: list[dict]) -> list[dict]:
+def generate_contextual_speaking_prompts(
+    reading_history: list[dict],
+    listening_history: list[dict],
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> list[dict]:
     topics = _topics_from_history(reading_history, listening_history)
     if not topics:
         return []
     topic_lines = "\n- ".join(topics)
-    full_prompt = f"""You are an expert IELTS tutor. Based on the topics from a user's recent practice history, generate 2-3 new, thematically related IELTS Speaking prompts (Part 2 or Part 3). The goal is to encourage the user to synthesize ideas and reuse vocabulary they've recently encountered. For each prompt, provide a short, user-facing 'reason' explaining why it's suggested.
+    context_block = _ctx_block(ctx, focus="speaking")
+    full_prompt = f"""You are an expert IELTS tutor. Based on the topics from a user's recent practice history, generate 2-3 new, thematically related IELTS Speaking prompts (Part 2 or Part 3). The goal is to encourage the user to synthesize ideas and reuse vocabulary they've recently encountered. For each prompt, provide a short, user-facing 'reason' explaining why it's suggested. If the STUDENT CONTEXT lists target vocabulary or speaking weaknesses, prefer prompts that naturally exercise them.{context_block}
 
 Respond ONLY in the requested JSON format.
 
@@ -463,12 +621,18 @@ Recent Practice Topics:
     return get_client().generate_json(full_prompt, schemas.CONTEXTUAL_SPEAKING_PROMPTS_SCHEMA)
 
 
-def generate_contextual_writing_prompts(reading_history: list[dict], listening_history: list[dict]) -> list[dict]:
+def generate_contextual_writing_prompts(
+    reading_history: list[dict],
+    listening_history: list[dict],
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> list[dict]:
     topics = _topics_from_history(reading_history, listening_history)
     if not topics:
         return []
     topic_lines = "\n- ".join(topics)
-    full_prompt = f"""You are an expert IELTS tutor. Based on the topics from a user's recent practice history, generate 2-3 new, thematically related IELTS Writing Task 2 prompts. The prompts should encourage debate and require the user to synthesize ideas related to the topics they've encountered. For each prompt, provide a short, user-facing 'reason' explaining why it's suggested.
+    context_block = _ctx_block(ctx, focus="writing")
+    full_prompt = f"""You are an expert IELTS tutor. Based on the topics from a user's recent practice history, generate 2-3 new, thematically related IELTS Writing Task 2 prompts. The prompts should encourage debate and require the user to synthesize ideas related to the topics they've encountered. For each prompt, provide a short, user-facing 'reason' explaining why it's suggested. If the STUDENT CONTEXT lists writing weaknesses, prefer prompts whose natural argument structure forces practice of those areas (e.g. cause/effect for a student weak on linking).{context_block}
 
 Respond ONLY in the requested JSON format.
 
@@ -494,13 +658,18 @@ _CREATE_SPEAKING_PROMPT_DECLARATION = {
 }
 
 
-def generate_practice_for_vocabulary(vocabulary: list[str]) -> dict:
+def generate_practice_for_vocabulary(
+    vocabulary: list[str],
+    *,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     """Returns the function-call args as a dict, or None if the model didn't call the function."""
-    full_prompt = f"""You are an expert IELTS coach. Your goal is to create a targeted practice session for a student to reinforce their learning of new, advanced vocabulary words.
+    context_block = _ctx_block(ctx, focus="speaking")
+    full_prompt = f"""You are an expert IELTS coach. Your goal is to create a targeted practice session for a student to reinforce their learning of new, advanced vocabulary words.{context_block}
 
 1.  Analyze the provided list of words.
 2.  Decide on the most effective practice method. A speaking prompt is generally preferred as it encourages active use.
-3.  Create a high-quality, relevant IELTS-style prompt (Part 2 or 3) that naturally encourages the use of these words.
+3.  Create a high-quality, relevant IELTS-style prompt (Part 2 or 3) that naturally encourages the use of these words. If the STUDENT CONTEXT lists recently practised topics, AVOID them so the student gets fresh exposure.
 4.  Call the `createSpeakingPrompt` function with the generated prompt details.
 
 Vocabulary to practice: {", ".join(vocabulary)}"""
@@ -591,6 +760,7 @@ def build_speaking_system_instruction(
     proficiency: str | None = None,
     prompt: dict | None = None,
     cue_card: dict | None = None,
+    ctx: Optional[StudentContext] = None,
 ) -> str:
     """Compose the system instruction for the Gemini Live session.
 
@@ -602,6 +772,7 @@ def build_speaking_system_instruction(
     accent_clause = _ACCENT_CLAUSE.get(accent, _ACCENT_CLAUSE["uk"])
     proficiency_clause = _PROFICIENCY_HINT.get(proficiency or "", "")
     l1_clause = _l1_hint(native_language)
+    context_block = _ctx_block(ctx, focus="speaking")
 
     language_directive = (
         "// LANGUAGE INSTRUCTION:\n"
@@ -626,7 +797,7 @@ You are Alex, a world-class IELTS speaking examiner conducting a full mock test.
 {accent_clause}
 {persona_clause}
 {proficiency_clause}
-{l1_clause}
+{l1_clause}{context_block}
 
 {language_directive}
 
@@ -649,7 +820,7 @@ You are Alex, an IELTS speaking examiner conducting a Part 3 role-play debate.
 {accent_clause}
 {persona_clause}
 {proficiency_clause}
-{l1_clause}
+{l1_clause}{context_block}
 
 {language_directive}
 
@@ -674,7 +845,7 @@ You are Alex, a world-class IELTS speaking examiner conducting a realistic mock 
 {accent_clause}
 {persona_clause}
 {proficiency_clause}
-{l1_clause}
+{l1_clause}{context_block}
 
 {language_directive}
 
@@ -695,15 +866,17 @@ def shadow_analyze_answer(
     answer: str,
     target_band: float = 7.0,
     native_language: str | None = None,
+    ctx: Optional[StudentContext] = None,
 ) -> dict:
     """Analyze a single Q+A pair for #21/#D2 shadow-mode practice. Returns
     the same `SpeakingAnalysis` shape as the full-session analyzer so the
     frontend can reuse rendering logic.
     """
     l1 = _l1_hint(native_language)
+    context_block = _ctx_block(ctx, focus="speaking")
     full_prompt = f"""You are an expert IELTS speaking examiner reviewing ONE answer to ONE question.
 
-{l1}
+{l1}{context_block}
 
 // QUESTION
 "{question}"
@@ -727,17 +900,24 @@ def whisper_hint(
     so_far: str,
     native_language: str | None = None,
     target_band: float = 7.0,
+    ctx: Optional[StudentContext] = None,
 ) -> str:
     """Short text-only redirect when the user is stuck during a live session.
     Goal: ~1 sentence pointing toward an angle they could take, NOT a model
     answer. Don't break the flow."""
     l1_label = _L1_LABELS.get(native_language or "", "")
     l1_clause = f" The student is a {l1_label} speaker." if l1_label else ""
+    vocab_clause = ""
+    if ctx and ctx.target_vocab_lemmas:
+        vocab_clause = (
+            f" If natural, your hint can prime one of these target words: "
+            f"{', '.join(ctx.target_vocab_lemmas[:3])}."
+        )
     full_prompt = f"""You are an IELTS speaking coach giving a quiet whisper-cue to a stuck student.
 
 The student is being asked: "{question}"
 What they have said so far (may be empty): "{so_far}"
-Their target band is {target_band:.1f}.{l1_clause}
+Their target band is {target_band:.1f}.{l1_clause}{vocab_clause}
 
 Reply with ONE short sentence (≤ 20 words) that gives them an angle to continue.
 Do NOT give them a full sentence to copy. Do NOT mention the rubric.
@@ -746,17 +926,28 @@ Output: just the sentence, nothing else."""
     return text.strip().split("\n")[0][:200]
 
 
-def band7_rephrase(*, user_text: str, question: str = "") -> dict:
+def band7_rephrase(
+    *,
+    user_text: str,
+    question: str = "",
+    ctx: Optional[StudentContext] = None,
+) -> dict:
     """E3: rephrase the user's answer to a band-7-equivalent version.
     Returns plain text only; client-side TTS plays it."""
     q_clause = f'\nFor context, the question was: "{question}"' if question else ""
+    vocab_clause = ""
+    if ctx and ctx.target_vocab_lemmas:
+        vocab_clause = (
+            f"\nWhere it fits naturally, prefer these target lemmas the student is reinforcing: "
+            f"{', '.join(ctx.target_vocab_lemmas[:5])}."
+        )
     full_prompt = f"""You are an IELTS speaking coach. The user is asking what a band-7 version of their answer could sound like.
 
 User's original answer:
 "{user_text}"{q_clause}
 
 Rewrite the answer at IELTS band 7 level — natural, fluent, with a couple of less-common collocations and clear discourse markers, but still authentically sounding like a real student (not perfect band 9).
-Keep the meaning + the user's perspective. Length must stay close to the original (within 30%).
+Keep the meaning + the user's perspective. Length must stay close to the original (within 30%).{vocab_clause}
 
 Respond with the rewritten answer ONLY — no explanation, no preamble."""
     rephrased = get_client().generate_text(full_prompt).strip()

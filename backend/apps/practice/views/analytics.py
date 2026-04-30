@@ -19,6 +19,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.ai import service as ai_service
+from apps.ai.context import build_for_user
 from apps.billing import features
 from apps.billing.features import requires_feature
 from apps.practice.models import (
@@ -99,6 +100,7 @@ class WeaknessAnalysisView(APIView):
             return Response({"analysis": cached.analysis, "cached": True})
 
         l1 = request.user.native_language or None
+        ctx = build_for_user(request.user)
         if skill == WeaknessAnalysisCache.SKILL_WRITING:
             history = list(
                 WritingSession.objects.filter(user=request.user, institute=request.user.institute)
@@ -107,7 +109,7 @@ class WeaknessAnalysisView(APIView):
             )
             if len(history) < 2:
                 return Response({"detail": "Need at least 2 writing sessions."}, status=400)
-            analysis = ai_service.analyze_weaknesses(history, native_language=l1)
+            analysis = ai_service.analyze_weaknesses(history, native_language=l1, ctx=ctx)
         else:
             analyses = list(
                 SpeakingSession.objects.filter(
@@ -118,7 +120,7 @@ class WeaknessAnalysisView(APIView):
             )
             if len(analyses) < 2:
                 return Response({"detail": "Need at least 2 analyzed speaking sessions."}, status=400)
-            analysis = ai_service.analyze_speaking_weaknesses(analyses, native_language=l1)
+            analysis = ai_service.analyze_speaking_weaknesses(analyses, native_language=l1, ctx=ctx)
 
         # Upsert (delete old, insert new — keeps history clean)
         WeaknessAnalysisCache.objects.filter(
@@ -152,7 +154,9 @@ class ComprehensiveAnalysisView(APIView):
         payload = {k: v for k, v in s.validated_data.items() if v is not None} or {
             "estimated_skills": adaptive.overview(request.user)["estimated_skills"],
         }
-        result = ai_service.get_comprehensive_analysis(payload)
+        result = ai_service.get_comprehensive_analysis(
+            payload, ctx=build_for_user(request.user),
+        )
         return Response({"analysis": result})
 
 
@@ -171,7 +175,9 @@ class StudyPlanView(APIView):
                 "estimated_skills": adaptive.overview(request.user)["estimated_skills"],
                 "target_score": request.user.target_score,
             }
-        plan = ai_service.generate_study_plan(performance)
+        plan = ai_service.generate_study_plan(
+            performance, ctx=build_for_user(request.user),
+        )
         StudyPlan.objects.create(
             institute=request.user.institute, user=request.user, plan=plan,
         )
