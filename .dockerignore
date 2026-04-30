@@ -1,0 +1,15 @@
+# Keep the build context small. Railway's railpack uploads the whole
+# repo otherwise.
+node_modules/
+dist/
+.vite/
+.git/
+backend/.venv/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+backend/.pytest_cache/
+*.png
+.DS_Store
+.vscode/
+.idea/
