@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from apps.ai import service as ai_service
 from apps.ai.context import build_for_user
+from apps.ai.quality_gate import QualityGateError, gate_speaking_transcript
 from apps.billing import features
 from apps.billing.features import PaymentRequired, requires_feature, user_has_feature
 from apps.practice.models import CalibrationEntry, SpeakingSession, VocabularyObservation
@@ -289,6 +290,14 @@ class AnalyzeTranscriptView(APIView):
     def post(self, request):
         s = _AnalyzeInput(data=request.data)
         s.is_valid(raise_exception=True)
+        # Pre-flight quality gate (Hard 6).
+        try:
+            gate_speaking_transcript(s.validated_data["transcript"])
+        except QualityGateError as qe:
+            return Response(
+                {"code": qe.code, "detail": qe.advice, **qe.payload},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
         analysis = ai_service.analyze_speaking_performance(
             transcript=s.validated_data["transcript"], mode=s.validated_data["mode"],
             ctx=build_for_user(request.user),

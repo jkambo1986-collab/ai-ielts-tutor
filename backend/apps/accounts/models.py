@@ -129,6 +129,12 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_STUDENT)
     name = models.CharField(max_length=200, blank=True)
     target_score = models.DecimalField(max_digits=3, decimal_places=1, default=7.0)
+    # Per-criterion sub-targets (UI 8 + Hard 7). When populated, agents
+    # consult these instead of the overall target_score where relevant.
+    # Shape: {"writing": {"taskAchievement": 7.0, "lexicalResource": 7.5, ...},
+    #         "speaking": {"fluencyAndCoherence": 7.0, ...}}
+    # Optional — empty dict means "use target_score for everything".
+    target_subscores = models.JSONField(default=dict, blank=True)
     adaptive_learning_enabled = models.BooleanField(default=False)
     # ESL profile — used by the AI service to tailor feedback when set.
     native_language = models.CharField(

@@ -522,3 +522,24 @@ DICTATION_SCHEMA = {
     },
     "required": ["title", "script", "blanks"],
 }
+
+
+# -- Band drop diagnostic (Hard 4) -- #
+
+BAND_DROP_DIAGNOSTIC_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string", "description": "One-sentence summary of why the band dipped."},
+        "specific_changes": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "2-4 concrete differences vs the prior 5 sessions.",
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+        },
+        "next_action": {"type": "string", "description": "One concrete thing to do in the next session."},
+    },
+    "required": ["headline", "specific_changes", "next_action"],
+}

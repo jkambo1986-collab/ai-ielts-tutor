@@ -9,6 +9,7 @@ import {
     Scorecard, ShareLink,
 } from '../../services/dashboardService';
 import { Heatmap12W, SubSkillBar, TargetGauge, TrendBadge, WeekdayStrip } from './charts';
+import EmptyState from '../ui/EmptyState';
 
 const formatDate = (iso: string | null) => {
     if (!iso) return '—';
@@ -385,7 +386,19 @@ export const CohortCard: React.FC = () => {
         return () => { cancelled = true; };
     }, []);
     if (data === undefined) return <Section title="Cohort benchmarks"><p className="text-sm text-slate-400">Loading…</p></Section>;
-    if (!data) return null; // 403 / no data
+    if (!data) {
+        // No data yet (or unauthorised). Don't render a blank card; surface a
+        // forward-looking hint so the section reads as "your progress unlocks
+        // this" rather than broken.
+        return (
+            <Section title="Cohort benchmarks" subtitle="Compare against your institute, the platform, and your L1 cohort.">
+                <EmptyState
+                    title="Compare yourself once you have a few sessions"
+                    body="Cohort benchmarks unlock after you complete 3+ sessions in a skill."
+                />
+            </Section>
+        );
+    }
     const d = data as import('../../services/dashboardService').CohortBenchmark;
     return (
         <Section title="Cohort benchmarks" subtitle={`Lookback ${d.lookback_days} days. Cohorts < ${d.min_cohort_size} hidden.`}>

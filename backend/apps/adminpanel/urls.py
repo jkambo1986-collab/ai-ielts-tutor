@@ -13,6 +13,12 @@ from apps.adminpanel.views import (
     UsageStatsView,
     UsersListView,
 )
+from apps.practice.views.feedback_votes import FeedbackQualityView
+from apps.practice.views.instructor import (
+    InstructorDigestView,
+    InstructorRosterView,
+    InstructorStudentDrilldownView,
+)
 
 urlpatterns = [
     path("sitemap", SitemapView.as_view(), name="admin-sitemap"),
@@ -22,4 +28,13 @@ urlpatterns = [
     path("invites", InvitesListCreateView.as_view(), name="admin-invites"),
     path("invites/bulk", BulkInviteView.as_view(), name="admin-invites-bulk"),
     path("invites/<uuid:invite_id>", InviteRevokeView.as_view(), name="admin-invite-revoke"),
+
+    # Instructor analytics workspace (Hard 1)
+    path("instructor/roster", InstructorRosterView.as_view(), name="admin-instructor-roster"),
+    path("instructor/students/<uuid:student_id>",
+         InstructorStudentDrilldownView.as_view(), name="admin-instructor-student"),
+    path("instructor/digest", InstructorDigestView.as_view(), name="admin-instructor-digest"),
+
+    # Prompt-quality dashboard (Hard 3)
+    path("feedback-quality", FeedbackQualityView.as_view(), name="admin-feedback-quality"),
 ]

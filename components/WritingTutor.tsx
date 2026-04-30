@@ -16,6 +16,9 @@ import WarmupBanner from './ui/WarmupBanner';
 import CrossSkillChip from './ui/CrossSkillChip';
 import CalibrationBadge from './ui/CalibrationBadge';
 import ReattemptDiffStrip from './ui/ReattemptDiffStrip';
+import PostSessionBridge from './ui/PostSessionBridge';
+import ResumeDraftBanner from './ui/ResumeDraftBanner';
+import FeedbackThumbs from './ui/FeedbackThumbs';
 import { useAutosave } from '../services/autosaveHook';
 import SaveIndicator from './ui/SaveIndicator';
 import NextStepBridge from './ui/NextStepBridge';
@@ -494,6 +497,16 @@ const WritingTutor: React.FC = () => {
         onSkip={() => runEvaluation(null)}
       />
       {!feedback && <WarmupBanner sessionType="writing" />}
+      {!feedback && (
+        <ResumeDraftBanner
+          currentPrompt={prompt}
+          editorIsEmpty={!essay.trim()}
+          onResume={(essayText, draftPrompt) => {
+            if (!prompt) setPrompt(draftPrompt);
+            setEssay(essayText);
+          }}
+        />
+      )}
       {!feedback && !essay.trim() && (
         <CrossSkillChip mode="writing" onSelect={(p) => setPrompt(p)} />
       )}
@@ -687,6 +700,15 @@ const WritingTutor: React.FC = () => {
                   <p className="text-5xl font-bold text-blue-600 dark:text-blue-400">{feedback.bandScore.toFixed(1)}</p>
                   <CalibrationBadge predicted={predictedBand} actual={feedback.bandScore} />
                 </div>
+                <PostSessionBridge
+                  fromSkill="writing"
+                  promptText={prompt}
+                  onBridge={(section, seed) => {
+                    try { localStorage.setItem('bridge_seed_prompt', seed); } catch { /* ignore */ }
+                    setActiveTab(section);
+                  }}
+                />
+                <FeedbackThumbs agent="writing_eval" />
 
                 {/* Render feedback for each criterion */}
                 <FeedbackSection title="Task Achievement" criterion={feedback.feedback.taskAchievement} />

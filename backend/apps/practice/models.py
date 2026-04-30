@@ -772,6 +772,162 @@ class DailyChallenge(models.Model):
         ]
 
 
+class VoiceJournalEntry(models.Model):
+    """Free-talk speaking entry (Hard 8) — separate from test-format SpeakingSession.
+
+    No rubric grading; just transcript + lexical/fluency stats. The
+    captured speech feeds vocabulary tracking and accumulates as
+    high-value training data over time.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="voice_journal_entries")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    prompt = models.CharField(max_length=300, blank=True, default="", help_text="Daily rotating prompt or empty for free talk.")
+    duration_seconds = models.PositiveIntegerField(default=0)
+    transcript = models.TextField(blank=True)
+    fluency_metrics = models.JSONField(null=True, blank=True)
+    # One-line lexical observation surfaced back to the student.
+    lexical_note = models.CharField(max_length=300, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "practice_voice_journal_entry"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+        ]
+
+
+class PartnerOptIn(models.Model):
+    """Per-user consent + preferences for study-partner matching (Hard 5).
+
+    Matching is institute-scoped by default; cross-institute requires
+    explicit `cross_institute_ok=True`. Without an opt-in row, the user is
+    invisible to matching.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField("accounts.User", on_delete=models.CASCADE, related_name="partner_opt_in")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    is_active = models.BooleanField(default=True, db_index=True)
+    cross_institute_ok = models.BooleanField(default=False)
+    # Display name to share with partner — defaults to first-name / blank.
+    display_name = models.CharField(max_length=80, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "practice_partner_opt_in"
+
+
+class PartnerSuggestion(models.Model):
+    """A suggested pairing surfaced once per week (Hard 5).
+
+    Append-only: every weekly evaluation can produce a new suggestion. The
+    `accepted_at` and `dismissed_at` columns record the user's response.
+    Mirrored row for the OTHER party — both users see the suggestion.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="partner_suggestions")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    partner = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="+")
+    similarity_score = models.FloatField(help_text="0..1; higher = more lexically similar.")
+    target_band_delta = models.FloatField(help_text="Absolute difference in target_score.")
+    suggested_task = models.TextField(blank=True, help_text="One concrete shared task for the week.")
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "practice_partner_suggestion"
+        ordering = ["-created_at"]
+
+
+class FeedbackVote(models.Model):
+    """Student vote on a piece of AI feedback (UI 5 / Hard 3 RLHF foundation).
+
+    Captures (agent, criterion, helpful/not) plus an optional reason code +
+    free-text for "not helpful" votes. Aggregated by Hard 3 to surface
+    prompt-quality regressions per agent + criterion.
+
+    Stored append-only; the act of voting again on the same target id
+    creates a new row so we keep the time series.
+    """
+
+    REASON_NONE = ""
+    REASON_WRONG_BAND = "wrong_band"
+    REASON_MISSED_ERRORS = "missed_errors"
+    REASON_TOO_GENERIC = "too_generic"
+    REASON_OTHER = "other"
+    REASON_CHOICES = [
+        (REASON_NONE, ""),
+        (REASON_WRONG_BAND, "Wrong band"),
+        (REASON_MISSED_ERRORS, "Missed errors"),
+        (REASON_TOO_GENERIC, "Too generic"),
+        (REASON_OTHER, "Other"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="feedback_votes")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    # Identifies which AI output this vote is about. agent ∈ writing_eval,
+    # speaking_analysis, weakness_analysis, study_plan, etc. criterion is
+    # optional (e.g. lexicalResource).
+    agent = models.CharField(max_length=64, db_index=True)
+    criterion = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    target_id = models.UUIDField(
+        null=True, blank=True,
+        help_text="Session id / row id the feedback came from. Optional.",
+    )
+    helpful = models.BooleanField(db_index=True)
+    reason = models.CharField(max_length=32, choices=REASON_CHOICES, blank=True, default="")
+    note = models.TextField(blank=True, max_length=2000)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "practice_feedback_vote"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["agent", "-created_at"]),
+            models.Index(fields=["institute", "-created_at"]),
+        ]
+
+
+class TargetBandHistory(models.Model):
+    """Append-only log of target_score changes per user (Hard 2).
+
+    The auto-tuner suggests an increment when the student consistently
+    exceeds their target; the user accepts/declines, and we record the
+    decision either way for the future audit trail. Manual edits via the
+    profile UI also write here.
+    """
+
+    SOURCE_ONBOARDING = "onboarding"
+    SOURCE_MANUAL = "manual"
+    SOURCE_AUTO_TUNER = "auto_tuner"
+    SOURCE_CHOICES = [
+        (SOURCE_ONBOARDING, "Onboarding"),
+        (SOURCE_MANUAL, "Manual"),
+        (SOURCE_AUTO_TUNER, "Auto-tuner"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="target_band_history")
+    institute = models.ForeignKey("tenants.Institute", on_delete=models.CASCADE, related_name="+")
+    previous_target = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
+    new_target = models.DecimalField(max_digits=3, decimal_places=1)
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES)
+    accepted = models.BooleanField(default=True, help_text="False if the auto-tuner suggested but the user declined.")
+    rationale = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "practice_target_band_history"
+        ordering = ["-created_at"]
+
+
 class TutorProfile(models.Model):
     """Live tutor for the marketplace (T3#13).
 

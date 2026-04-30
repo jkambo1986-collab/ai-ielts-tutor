@@ -9,6 +9,9 @@ from apps.practice.views.debate import (
 from apps.practice.views.tutors import (
     BookingActionView, BookingsView, TutorListView, TutorUpsertView,
 )
+from apps.practice.views.voice_journal import (
+    JournalTodayView, JournalView,
+)
 from apps.practice.views.sessions import SpeakingSessionViewSet
 from apps.practice.views.speaking_ai import (
     AnalyzeTranscriptView,
@@ -74,6 +77,10 @@ urlpatterns = [
     path("debate/queue", DebateQueueView.as_view(), name="speaking-debate-queue"),
     path("debate/rooms/<uuid:room_id>", DebateRoomView.as_view(), name="speaking-debate-room"),
     path("debate/rooms/<uuid:room_id>/leave", DebateLeaveView.as_view(), name="speaking-debate-leave"),
+
+    # Voice journal (Hard 8) — free-talk mode, no rubric.
+    path("journal", JournalView.as_view(), name="speaking-journal"),
+    path("journal/today", JournalTodayView.as_view(), name="speaking-journal-today"),
 
     # Tutor marketplace (T3#13) — payment integration stubbed.
     path("tutors", TutorListView.as_view(), name="speaking-tutors"),

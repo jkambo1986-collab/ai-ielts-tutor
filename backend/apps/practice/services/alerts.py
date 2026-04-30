@@ -151,6 +151,42 @@ def _skill_avg_band(model_cls, user, skill: str) -> float | None:
     return mean(bands[1:])  # skip the latest, that's the one we're comparing to
 
 
+def _diagnose_writing_drop(user) -> dict | None:
+    """Best-effort: call the band-drop diagnostic agent for writing. Returns
+    None if Gemini fails or there isn't enough history. Wrapped to keep
+    alert generation resilient."""
+    try:
+        rows = list(
+            WritingSession.objects.filter(user=user, deleted_at__isnull=True)
+            .order_by("-created_at")[:6]
+        )
+        if len(rows) < 4:
+            return None
+        latest = rows[0]
+        priors = rows[1:6]
+        from apps.ai import service as ai_service
+        from apps.ai.context import build_for_user
+
+        def _summarise(s):
+            return {
+                "band": float(s.band_score) if s.band_score is not None else None,
+                "word_count": len((s.essay or "").split()),
+                "duration_seconds": s.duration_seconds or 0,
+                "task_type": s.task_type,
+                "feedback": s.feedback if isinstance(s.feedback, dict) else None,
+            }
+
+        return ai_service.diagnose_band_drop(
+            skill="writing",
+            latest_session=_summarise(latest),
+            prior_sessions=[_summarise(s) for s in priors],
+            target_band=float(getattr(user, "target_score", None) or 7.0),
+            ctx=build_for_user(user),
+        )
+    except Exception:
+        return None
+
+
 def _last_session_at(user) -> timezone.datetime | None:
     candidates = []
     for model in (WritingSession, SpeakingSession, ReadingSession, ListeningSession):
@@ -175,13 +211,23 @@ def generate_alerts(user) -> list[DashboardAlert]:
     if delta is not None and not _alert_exists(
         user, DashboardAlert.TYPE_REGRESSION, {"skill": "writing"},
     ):
+        # Hard 4: ask the AI for a specific diagnostic. Best-effort — if
+        # Gemini fails, we still ship the regression alert with no diagnostic
+        # rather than burying the engagement signal entirely.
+        diagnostic = _diagnose_writing_drop(user)
+        body = f"Your last 3 writing sessions averaged {round(delta, 2)} band lower than the prior 3."
+        if diagnostic and diagnostic.get("headline"):
+            body = diagnostic["headline"]
         created.append(DashboardAlert.objects.create(
             user=user, institute=user.institute,
             alert_type=DashboardAlert.TYPE_REGRESSION,
             severity=DashboardAlert.SEVERITY_WARNING,
             title="Writing scores have dipped",
-            body=f"Your last 3 writing sessions averaged {round(delta, 2)} band lower than the prior 3.",
-            payload={"skill": "writing", "delta": float(delta)},
+            body=body,
+            payload={
+                "skill": "writing", "delta": float(delta),
+                "diagnostic": diagnostic,  # may be None when Gemini failed
+            },
             cta_label="Try a quick win",
             cta_target="Writing",
         ))

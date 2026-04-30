@@ -6,6 +6,7 @@
 import React, { useState, useCallback, lazy, Suspense, useEffect, createContext, useContext, ReactNode, useTransition } from 'react';
 import { IELTSSection, UserProfile, IAppContext, WritingSessionSummary, ReadingSessionSummary, ListeningSessionSummary, SpeakingSessionSummary } from './types';
 import Sidebar from './components/Sidebar';
+import MobileNav from './components/MobileNav';
 import Dashboard from './components/Dashboard';
 import Today from './components/Today';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -117,7 +118,7 @@ const AppContent: React.FC = () => {
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
                 <SectionTopBar />
-                <main className="flex-1 overflow-y-auto">
+                <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
                     <div
                         id="main-content"
                         className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-10 py-6 sm:py-8"
@@ -135,6 +136,7 @@ const AppContent: React.FC = () => {
                     </footer>
                 </main>
             </div>
+            <MobileNav />
             {showOnboard && (
                 <OnboardingWizard
                     onComplete={() => setShowOnboard(false)}

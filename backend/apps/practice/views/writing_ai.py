@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 
 from apps.ai import service as ai_service
 from apps.ai.context import build_for_user
+from apps.ai.quality_gate import QualityGateError, gate_writing
 from apps.billing import features
 from apps.billing.features import requires_feature
 from apps.practice.models import VocabularyObservation, WritingSession
@@ -45,6 +46,18 @@ class EvaluateWritingView(APIView):
     def post(self, request):
         s = _EvaluateInput(data=request.data)
         s.is_valid(raise_exception=True)
+        # Pre-flight quality gate (Hard 6) — refuse trivially short input
+        # before paying for a Gemini call. Returns 422 with structured advice.
+        try:
+            gate_writing(
+                prompt=s.validated_data["prompt"],
+                essay=s.validated_data["essay"],
+            )
+        except QualityGateError as qe:
+            return Response(
+                {"code": qe.code, "detail": qe.advice, **qe.payload},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
         feedback = ai_service.evaluate_writing(
             prompt=s.validated_data["prompt"],
             essay=s.validated_data["essay"],

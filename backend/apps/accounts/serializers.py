@@ -27,6 +27,7 @@ class UserSerializer(serializers.ModelSerializer):
             "name",
             "role",
             "target_score",
+            "target_subscores",
             "adaptive_learning_enabled",
             "native_language",
             "english_proficiency_level",
@@ -131,6 +132,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
         fields = (
             "name",
             "target_score",
+            "target_subscores",
             "adaptive_learning_enabled",
             "native_language",
             "english_proficiency_level",
@@ -142,6 +144,29 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     def validate_target_score(self, value):
         if not (1.0 <= value <= 9.0):
             raise serializers.ValidationError("Target score must be between 1.0 and 9.0.")
+        return value
+
+    def validate_target_subscores(self, value):
+        """Sub-targets must be a dict-of-dicts with band values 1.0-9.0.
+
+        Shape: {"writing": {"taskAchievement": 7.0, ...},
+                "speaking": {"fluencyAndCoherence": 7.0, ...}}
+        Empty dict is valid (means "use target_score for everything").
+        """
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("target_subscores must be an object.")
+        for skill, criteria in value.items():
+            if skill not in ("writing", "speaking"):
+                raise serializers.ValidationError(f"Unknown skill key: {skill}")
+            if not isinstance(criteria, dict):
+                raise serializers.ValidationError(f"{skill} must map to an object of criterion → band.")
+            for crit, band in criteria.items():
+                try:
+                    b = float(band)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError(f"{skill}.{crit} must be a number.")
+                if not (1.0 <= b <= 9.0):
+                    raise serializers.ValidationError(f"{skill}.{crit} must be between 1.0 and 9.0.")
         return value
 
 

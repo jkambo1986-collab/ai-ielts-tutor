@@ -82,6 +82,10 @@ class StudentContext:
     # praise momentum or prompt recovery.
     current_streak_days: int = 0
 
+    # Per-criterion sub-targets (UI 8 + Hard 7). Empty dict means "use
+    # target_band for everything". Shape mirrors User.target_subscores.
+    target_subscores: dict = field(default_factory=dict)
+
     # ----- Render helpers ----- #
 
     def is_empty(self) -> bool:
@@ -215,6 +219,22 @@ class StudentContext:
                 f"acknowledge the momentum without over-praising."
             )
 
+        # Per-criterion sub-targets (Hard 7). Surface only the relevant skill
+        # so the prompt stays compact.
+        sub_target_skill = (
+            "writing" if focus in ("writing",)
+            else "speaking" if focus in ("speaking",)
+            else None
+        )
+        if sub_target_skill and isinstance(self.target_subscores, dict):
+            sub = self.target_subscores.get(sub_target_skill)
+            if isinstance(sub, dict) and sub:
+                pairs = ", ".join(f"{k}={float(v):.1f}" for k, v in sub.items())
+                lines.append(
+                    f"- Per-criterion targets ({sub_target_skill}): {pairs}. "
+                    f"Be harsher on criteria with the highest target; lenient where the target is below 7.0."
+                )
+
         if len(lines) == 1:  # only the header, nothing to add
             return ""
         return "\n".join(lines)
@@ -328,12 +348,17 @@ def build_for_user(user: "User") -> StudentContext:
         delta = exam_date - timezone.now().date()
         days_until_exam = max(int(delta.days), 0)
 
+    target_subscores = getattr(user, "target_subscores", None) or {}
+    if not isinstance(target_subscores, dict):
+        target_subscores = {}
+
     ctx = StudentContext(
         user_id=str(user.id),
         target_band=target_band,
         native_language=native_language,
         proficiency=proficiency,
         days_until_exam=days_until_exam,
+        target_subscores=target_subscores,
     )
 
     base_filter = {"user": user}

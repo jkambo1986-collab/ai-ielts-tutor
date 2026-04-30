@@ -18,6 +18,13 @@ from apps.practice.views.dashboard_state import (
     ShareLinkView, ShareLinkRevokeView, StreakView, StudyPlanLatestView,
     VocabularyView, WarmupView,
 )
+from apps.practice.views.feedback_votes import (
+    FeedbackQualityView, FeedbackVoteView,
+)
+from apps.practice.views.partners import (
+    PartnerMatchNowView, PartnerOptInView, PartnerSuggestionActionView,
+    PartnerSuggestionsView,
+)
 from apps.practice.views.reviews import (
     ReviewClaimView, ReviewCompleteView, ReviewPayStubView,
     ReviewQueueView, StudentReviewsView,
@@ -51,6 +58,17 @@ urlpatterns = [
     path("daily-challenge", DailyChallengeView.as_view(), name="analytics-daily-challenge"),
     path("badges", BadgesView.as_view(), name="analytics-badges"),
     path("guarantee", GuaranteeEligibilityView.as_view(), name="analytics-guarantee"),
+
+    # AI feedback voting (UI 5) + admin aggregation (Hard 3)
+    path("feedback-votes", FeedbackVoteView.as_view(), name="analytics-feedback-votes"),
+    path("feedback-quality", FeedbackQualityView.as_view(), name="analytics-feedback-quality"),
+
+    # Study-partner matching (Hard 5) — opt-in, anonymized, weekly suggestion.
+    path("partner/opt-in", PartnerOptInView.as_view(), name="analytics-partner-optin"),
+    path("partner/suggestions", PartnerSuggestionsView.as_view(), name="analytics-partner-suggestions"),
+    path("partner/suggestions/<uuid:suggestion_id>/<str:action>",
+         PartnerSuggestionActionView.as_view(), name="analytics-partner-suggestion-action"),
+    path("partner/match-now", PartnerMatchNowView.as_view(), name="analytics-partner-match-now"),
 
     # Human-graded review queue (T2#7) — payment stubbed.
     path("reviews", StudentReviewsView.as_view(), name="analytics-reviews"),

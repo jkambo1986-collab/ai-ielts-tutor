@@ -988,6 +988,41 @@ Output: just the sentence, nothing else."""
     return text.strip().split("\n")[0][:200]
 
 
+def diagnose_band_drop(
+    *,
+    skill: str,
+    latest_session: dict,
+    prior_sessions: list[dict],
+    target_band: float,
+    ctx: Optional[StudentContext] = None,
+) -> dict:
+    """Hard 4: explain why the latest session was below the 30-day average.
+
+    `latest_session` and each item of `prior_sessions` should be a compact
+    dict (band, criteria scores, word/transcript counts, duration_seconds,
+    topic). The agent compares them and returns a structured diagnostic
+    suitable for surfacing as an alert payload.
+
+    Called only when the regression-alert path detects a dip — we don't
+    want to spend Gemini calls on every session.
+    """
+    context_block = _ctx_block(ctx, focus="general", suppress_l1=True)
+    full_prompt = f"""You are an IELTS coach reviewing a student's recent {skill} sessions and writing a one-paragraph diagnostic on why the latest band dipped.{context_block}
+
+Compare the LATEST session against the PRIOR 5 sessions. Pinpoint the SPECIFIC, OBSERVABLE differences (essay length, time spent, criterion that fell, topic difficulty, vocabulary range) that explain the drop. Avoid platitudes. Avoid blaming the student. End with ONE concrete action they should take in the very next session.
+
+Target band: {target_band:.1f}
+
+LATEST SESSION:
+{json.dumps(latest_session, indent=2, default=str)}
+
+PRIOR 5 SESSIONS (most recent first):
+{json.dumps(prior_sessions, indent=2, default=str)}
+
+Respond ONLY in the requested JSON format."""
+    return get_client().generate_json(full_prompt, schemas.BAND_DROP_DIAGNOSTIC_SCHEMA)
+
+
 def band7_rephrase(
     *,
     user_text: str,

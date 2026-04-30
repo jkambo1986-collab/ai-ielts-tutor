@@ -27,6 +27,7 @@ import CrashPlanBanner from './ui/CrashPlanBanner';
 import ReadingWpmWidget from './ui/ReadingWpmWidget';
 import LexicalTrendChart from './ui/LexicalTrendChart';
 import PronunciationHeatmap from './ui/PronunciationHeatmap';
+import TodayHero from './ui/TodayHero';
 
 type DaysFilter = 7 | 30 | 'all';
 
@@ -139,6 +140,15 @@ const Dashboard: React.FC = () => {
                 <>
                     {/* Alerts (#28) */}
                     <AlertsBanner alerts={data.alerts} onDismiss={dismissAlert} onCta={handleAlertCta} />
+
+                    {/* Today hero — single next-action recommendation, top of dashboard. */}
+                    <TodayHero
+                        data={data}
+                        daysUntilExam={currentUser?.examDate
+                            ? Math.ceil((new Date(currentUser.examDate).getTime() - Date.now()) / 86400000)
+                            : null}
+                        onAct={setActiveTab}
+                    />
 
                     {/* Crash plan banner — fires when exam_date within 14 days. */}
                     {currentUser?.examDate && (() => {
