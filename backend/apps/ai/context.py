@@ -17,6 +17,7 @@ single in-memory dataclass costs nothing to rebuild against indexed reads.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -26,6 +27,8 @@ from django.utils import timezone
 
 if TYPE_CHECKING:
     from apps.accounts.models import User
+
+log = logging.getLogger(__name__)
 
 
 _RECENT_SESSIONS_LIMIT = 5
@@ -78,7 +81,12 @@ class StudentContext:
     # ----- Render helpers ----- #
 
     def is_empty(self) -> bool:
-        """True when nothing useful is known — e.g. brand-new student."""
+        """True when nothing useful is known — e.g. brand-new student.
+
+        Used to short-circuit `prompt_block` so empty contexts don't even
+        emit the "// STUDENT CONTEXT" header. Must enumerate EVERY signal
+        the renderer would surface; if any is set, we're not empty.
+        """
         return not (
             self.writing_weaknesses
             or self.speaking_weaknesses
@@ -86,8 +94,14 @@ class StudentContext:
             or self.recent_listening_topics
             or self.target_vocab_lemmas
             or self.sample_error_patterns
+            or self.active_error_categories
             or self.recent_writing_band
             or self.recent_speaking_band
+            or self.recent_reading_band
+            or self.recent_listening_band
+            or self.advanced_vocab_count
+            or self.avg_band_delta is not None
+            or self.days_until_exam is not None
         )
 
     def _l1_line(self) -> str:
@@ -110,12 +124,16 @@ class StudentContext:
             return f"- Exam date: {self.days_until_exam} days away — prioritise high-leverage fixes."
         return f"- Exam date: {self.days_until_exam} days away."
 
-    def prompt_block(self, focus: str = "general") -> str:
+    def prompt_block(self, focus: str = "general", suppress_l1: bool = False) -> str:
         """Render the relevant slice of context as a prompt fragment.
 
         `focus` selects which signals to emphasise: 'writing', 'speaking',
         'reading', 'listening', 'quiz', 'integrated', or 'general'. Always
         includes target band + L1 hint regardless of focus.
+
+        `suppress_l1=True` skips the L1 line — used by callers that already
+        inject an L1 hint themselves (e.g. build_speaking_system_instruction)
+        so the live system prompt doesn't carry the hint twice.
         """
         if self.is_empty() and not self.native_language and self.target_band == 7.0:
             # Truly nothing to add — return empty so the prompt stays clean.
@@ -125,9 +143,10 @@ class StudentContext:
         lines.append(f"- Target IELTS band: {self.target_band:.1f}")
         if self.proficiency:
             lines.append(f"- Self-rated proficiency: {self.proficiency.replace('_', ' ')}")
-        l1 = self._l1_line()
-        if l1:
-            lines.append(l1)
+        if not suppress_l1:
+            l1 = self._l1_line()
+            if l1:
+                lines.append(l1)
         exam = self._exam_line()
         if exam:
             lines.append(exam)
@@ -241,20 +260,30 @@ _L1_TYPICAL_ERRORS = {
 def _extract_weakness_summaries(weakness_obj) -> list[str]:
     """Pull short summaries out of a WeaknessAnalysisCache.analysis blob.
 
-    The schema is `{ weaknesses: [{ summary, suggestion }] }`. We tolerate
-    either old or new shapes — never raise.
+    Authoritative schema (apps.ai.schemas.WEAKNESS_ANALYSIS_SCHEMA) is
+    `{ recurringWeaknesses: [{ weakness, suggestion }] }`. We tolerate the
+    legacy {weaknesses:[{summary}]} shape too, but never raise — a stale
+    cache row should degrade to an empty list, not break the request.
     """
-    if not weakness_obj:
+    if not isinstance(weakness_obj, dict):
         return []
-    items = weakness_obj.get("weaknesses") if isinstance(weakness_obj, dict) else None
-    if not items:
-        return []
+    items = (
+        weakness_obj.get("recurringWeaknesses")
+        or weakness_obj.get("weaknesses")
+        or []
+    )
     out: list[str] = []
     for it in items:
-        if isinstance(it, dict):
-            s = it.get("summary") or it.get("title") or ""
-            if s:
-                out.append(s.strip()[:140])
+        if not isinstance(it, dict):
+            continue
+        text = (
+            it.get("weakness")
+            or it.get("summary")
+            or it.get("title")
+            or ""
+        )
+        if text:
+            out.append(text.strip()[:140])
     return out
 
 
@@ -313,7 +342,7 @@ def build_for_user(user: "User") -> StudentContext:
             elif c["skill"] == WeaknessAnalysisCache.SKILL_SPEAKING:
                 ctx.speaking_weaknesses = summaries
     except Exception:
-        pass
+        log.warning("StudentContext: weakness cache load failed", exc_info=True)
 
     # ----- Recent topics + recent bands ----- #
     try:
@@ -326,7 +355,7 @@ def build_for_user(user: "User") -> StudentContext:
         if recent_reading and recent_reading[0].get("band_score") is not None:
             ctx.recent_reading_band = float(recent_reading[0]["band_score"])
     except Exception:
-        pass
+        log.warning("StudentContext: reading sessions load failed", exc_info=True)
 
     try:
         recent_listening = list(
@@ -338,7 +367,7 @@ def build_for_user(user: "User") -> StudentContext:
         if recent_listening and recent_listening[0].get("band_score") is not None:
             ctx.recent_listening_band = float(recent_listening[0]["band_score"])
     except Exception:
-        pass
+        log.warning("StudentContext: listening sessions load failed", exc_info=True)
 
     try:
         recent_writing = WritingSession.objects.filter(
@@ -347,7 +376,7 @@ def build_for_user(user: "User") -> StudentContext:
         if recent_writing:
             ctx.recent_writing_band = float(recent_writing[0])
     except Exception:
-        pass
+        log.warning("StudentContext: writing sessions load failed", exc_info=True)
 
     try:
         recent_speaking = SpeakingSession.objects.filter(
@@ -361,7 +390,7 @@ def build_for_user(user: "User") -> StudentContext:
                 except (TypeError, ValueError):
                     pass
     except Exception:
-        pass
+        log.warning("StudentContext: speaking sessions load failed", exc_info=True)
 
     # ----- Vocabulary state ----- #
     try:
@@ -376,7 +405,7 @@ def build_for_user(user: "User") -> StudentContext:
         )
         ctx.target_vocab_lemmas = [l for l in candidates if l]
     except Exception:
-        pass
+        log.warning("StudentContext: vocabulary load failed", exc_info=True)
 
     # ----- Active SRS error cards ----- #
     try:
@@ -397,7 +426,7 @@ def build_for_user(user: "User") -> StudentContext:
             if c.get("error_text")
         ][:3]
     except Exception:
-        pass
+        log.warning("StudentContext: error cards load failed", exc_info=True)
 
     # ----- Calibration delta (avg over last 30 days) ----- #
     try:
@@ -410,6 +439,6 @@ def build_for_user(user: "User") -> StudentContext:
         if delta is not None:
             ctx.avg_band_delta = float(delta)
     except Exception:
-        pass
+        log.warning("StudentContext: calibration load failed", exc_info=True)
 
     return ctx

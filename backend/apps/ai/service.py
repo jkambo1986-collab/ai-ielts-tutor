@@ -26,16 +26,25 @@ log = logging.getLogger(__name__)
 
 # -- Helpers -- #
 
-def _ctx_block(ctx: Optional[StudentContext], focus: str = "general") -> str:
+def _ctx_block(
+    ctx: Optional[StudentContext],
+    focus: str = "general",
+    *,
+    suppress_l1: bool = False,
+) -> str:
     """Render a `StudentContext` slice as a prompt fragment (or empty string).
 
     Agents call this once and splice the result into their prompt — usually
     right after the system directive, before the task-specific input. When
     `ctx` is None or empty, returns "" so the prompt is unchanged.
+
+    `suppress_l1=True` is for callers that already inject an L1 hint (e.g.
+    `build_speaking_system_instruction` via `_l1_hint`); without it the live
+    system prompt would carry the L1 information twice.
     """
     if ctx is None:
         return ""
-    block = ctx.prompt_block(focus=focus)
+    block = ctx.prompt_block(focus=focus, suppress_l1=suppress_l1)
     return f"\n\n{block}\n" if block else ""
 
 
@@ -402,7 +411,7 @@ def analyze_weaknesses(
     """
     feedback_only = [s.get("feedback", s) for s in history]
     l1 = _l1_hint(native_language)
-    context_block = _ctx_block(ctx, focus="writing")
+    context_block = _ctx_block(ctx, focus="writing", suppress_l1=True)
     full_prompt = f"""You are an expert IELTS writing coach. I have provided you with the JSON feedback from a student's past {len(feedback_only)} writing sessions.
 
 {l1}{context_block}
@@ -423,7 +432,7 @@ def analyze_speaking_weaknesses(
     ctx: Optional[StudentContext] = None,
 ) -> dict:
     l1 = _l1_hint(native_language)
-    context_block = _ctx_block(ctx, focus="speaking")
+    context_block = _ctx_block(ctx, focus="speaking", suppress_l1=True)
     full_prompt = f"""You are an expert IELTS speaking coach. I have provided JSON feedback from a student's past {len(analyses)} speaking sessions.
 
 {l1}{context_block}
@@ -772,7 +781,8 @@ def build_speaking_system_instruction(
     accent_clause = _ACCENT_CLAUSE.get(accent, _ACCENT_CLAUSE["uk"])
     proficiency_clause = _PROFICIENCY_HINT.get(proficiency or "", "")
     l1_clause = _l1_hint(native_language)
-    context_block = _ctx_block(ctx, focus="speaking")
+    # L1 is already in `l1_clause` above, so the ctx block must not repeat it.
+    context_block = _ctx_block(ctx, focus="speaking", suppress_l1=True)
 
     language_directive = (
         "// LANGUAGE INSTRUCTION:\n"
@@ -873,7 +883,7 @@ def shadow_analyze_answer(
     frontend can reuse rendering logic.
     """
     l1 = _l1_hint(native_language)
-    context_block = _ctx_block(ctx, focus="speaking")
+    context_block = _ctx_block(ctx, focus="speaking", suppress_l1=True)
     full_prompt = f"""You are an expert IELTS speaking examiner reviewing ONE answer to ONE question.
 
 {l1}{context_block}
