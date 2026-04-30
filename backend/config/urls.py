@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from apps.health.views import healthz, readyz
+from apps.health.views import healthz, readyz, version
 from apps.practice.views.share import PublicShareView
 from apps.practice.views.ux import PublicProfileView
 
@@ -12,6 +12,7 @@ from apps.practice.views.ux import PublicProfileView
 api_v1 = [
     path("healthz", healthz),
     path("readyz", readyz),
+    path("version", version),
     # Public read-only snapshot served via signed token. No auth required —
     # the token IS the auth. Lives at /api/v1/share/<token>.
     path("share/<str:token>", PublicShareView.as_view(), name="public-share"),
