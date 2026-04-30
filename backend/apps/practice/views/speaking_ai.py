@@ -12,6 +12,7 @@ from apps.billing import features
 from apps.billing.features import PaymentRequired, requires_feature, user_has_feature
 from apps.practice.models import CalibrationEntry, SpeakingSession, VocabularyObservation
 from apps.practice.services.bands import speaking_quality_score
+from apps.practice.services.error_cards import extract_from_speaking_analysis
 from apps.practice.services.fluency import compute_fluency
 from apps.practice.services.vocab import extract_lemmas, transcript_text
 
@@ -186,6 +187,15 @@ class EndSessionView(APIView):
 
         session.save()
 
+        # Auto-extract SRS error cards from analysis — best-effort.
+        if analysis:
+            extract_from_speaking_analysis(
+                user=request.user,
+                institute=request.user.institute,
+                session_id=session.id,
+                analysis=analysis,
+            )
+
         # Calibration entry (#25) — only on first analysis with prediction.
         if (
             session.predicted_band is not None
@@ -290,6 +300,13 @@ class AnalyzeTranscriptView(APIView):
                 return Response({"detail": "Session not found."}, status=404)
             session.analysis = analysis
             session.save(update_fields=["analysis"])
+            # Auto-extract SRS error cards — best-effort, only when we have a session.
+            extract_from_speaking_analysis(
+                user=request.user,
+                institute=request.user.institute,
+                session_id=session.id,
+                analysis=analysis,
+            )
 
         return Response({"analysis": analysis, "session_id": str(sid) if sid else None})
 

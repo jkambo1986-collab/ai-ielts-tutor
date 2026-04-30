@@ -13,6 +13,7 @@ from apps.billing import features
 from apps.billing.features import requires_feature
 from apps.practice.models import VocabularyObservation, WritingSession
 from apps.practice.services.bands import writing_quality_score
+from apps.practice.services.error_cards import extract_from_writing_feedback
 from apps.practice.services.vocab import extract_lemmas
 
 
@@ -89,6 +90,16 @@ class EvaluateWritingView(APIView):
                 predicted_band=predicted, actual_band=actual,
                 delta=predicted - actual,
             )
+
+        # Auto-extract SRS error cards from feedback — best-effort.
+        # Without this the SRS queue stays empty for nearly all real users
+        # because there's no UI flow that asks "save this as a card?".
+        extract_from_writing_feedback(
+            user=request.user,
+            institute=request.user.institute,
+            session_id=session.id,
+            feedback=feedback,
+        )
 
         # Vocabulary ingestion (#19) — best-effort, never block on failure.
         try:
