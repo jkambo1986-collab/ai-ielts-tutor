@@ -17,6 +17,7 @@ end-to-end flow can be exercised in dev.
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -125,7 +126,12 @@ class ReviewClaimView(APIView):
 
 
 class _CompleteInput(serializers.Serializer):
-    band_score = serializers.DecimalField(max_digits=3, decimal_places=1, min_value=1.0, max_value=9.0)
+    # min/max passed as Decimal to silence DRF's UserWarning about float bounds
+    # on a DecimalField — see rest_framework/fields.py:990,992.
+    band_score = serializers.DecimalField(
+        max_digits=3, decimal_places=1,
+        min_value=Decimal("1.0"), max_value=Decimal("9.0"),
+    )
     notes = serializers.CharField(allow_blank=True, max_length=8000, default="")
 
 
