@@ -74,6 +74,28 @@ class DebateQueueView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    def get(self, request):
+        """List currently-waiting rooms for the user's institute. Used by the
+        Debate Rooms tab to give the user a sense of what's open before they
+        opt into the queue."""
+        rooms = (
+            DebateRoom.objects
+            .filter(institute=request.user.institute, status=DebateRoom.STATUS_WAITING)
+            .order_by("created_at")[:20]
+        )
+        results = []
+        for r in rooms:
+            results.append({
+                "id": str(r.id),
+                "topic": r.topic,
+                "status": r.status,
+                "participants_count": r.participants.count(),
+                "created_at": r.created_at.isoformat(),
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "completed_at": r.ended_at.isoformat() if r.ended_at else None,
+            })
+        return Response({"results": results})
+
     def post(self, request):
         s = _QueueInput(data=request.data)
         s.is_valid(raise_exception=True)
