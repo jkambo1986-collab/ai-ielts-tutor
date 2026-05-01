@@ -36,14 +36,9 @@ const ExplainabilityPane: React.FC<Props> = ({ skill, band, writing, speaking })
     const [error, setError] = useState<string | null>(null);
     const [explanation, setExplanation] = useState<BandExplanation | null>(null);
 
-    const handleExplain = async () => {
-        if (explanation) {
-            setOpen(o => !o);
-            return;
-        }
+    const fetchExplanation = async () => {
         setLoading(true);
         setError(null);
-        setOpen(true);
         try {
             const path = skill === 'writing' ? '/writing/explain-band' : '/speaking/explain-band';
             const body = skill === 'writing'
@@ -56,6 +51,15 @@ const ExplainabilityPane: React.FC<Props> = ({ skill, band, writing, speaking })
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleExplain = async () => {
+        if (explanation) {
+            setOpen(o => !o);
+            return;
+        }
+        setOpen(true);
+        await fetchExplanation();
     };
 
     return (
@@ -79,7 +83,16 @@ const ExplainabilityPane: React.FC<Props> = ({ skill, band, writing, speaking })
                 <div className="px-4 pb-4">
                     {loading && <Loader text="Analyzing against the official descriptors…" />}
                     {error && (
-                        <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                        <div role="alert" className="flex items-center justify-between gap-3 rounded border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 px-3 py-2">
+                            <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                            <button
+                                onClick={fetchExplanation}
+                                disabled={loading}
+                                className="text-xs font-semibold text-white bg-red-600 hover:bg-red-500 disabled:opacity-60 px-3 py-1.5 rounded-md flex-shrink-0"
+                            >
+                                {loading ? 'Retrying…' : 'Retry'}
+                            </button>
+                        </div>
                     )}
                     {explanation && (
                         <div className="space-y-3">
