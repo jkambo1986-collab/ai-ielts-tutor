@@ -38,8 +38,10 @@ class _EvaluateAnswerInput(serializers.Serializer):
     passage = serializers.CharField(min_length=20, max_length=20000)
     question = serializers.CharField(max_length=2000)
     options = serializers.ListField(child=serializers.CharField(max_length=500), min_length=2, max_length=8)
-    user_answer = serializers.CharField(max_length=10)
-    correct_answer = serializers.CharField(max_length=10)
+    # Some Gemini outputs put full option text (not just A/B/C/D) into the
+    # answer field; widen so we don't 400 on those.
+    user_answer = serializers.CharField(max_length=500)
+    correct_answer = serializers.CharField(max_length=500)
 
 
 class EvaluateReadingAnswerView(APIView):
