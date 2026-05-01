@@ -53,6 +53,17 @@ const NextStepBridge: React.FC<Props> = ({ fromSection, topic, weakest }) => {
         });
     } else if (fromSection === IELTSSection.Speaking) {
         suggestions.push({
+            label: `Write 150 words on "${trim(topic)}" while it's fresh`,
+            cta: 'Open Writing',
+            action: () => {
+                setTargetedPractice({
+                    destination: IELTSSection.Writing,
+                    payload: { text: topic },
+                });
+                setActiveTab(IELTSSection.Writing);
+            },
+        });
+        suggestions.push({
             label: `Read a related passage`,
             cta: 'Open Reading',
             action: () => setActiveTab(IELTSSection.Reading),
@@ -61,6 +72,22 @@ const NextStepBridge: React.FC<Props> = ({ fromSection, topic, weakest }) => {
             label: `Lock in vocab via SRS review`,
             cta: 'Open SRS',
             action: () => setActiveTab(IELTSSection.Dashboard),
+        });
+    } else if (fromSection === IELTSSection.Quiz) {
+        suggestions.push({
+            label: `Review wrong answers as flashcards`,
+            cta: 'Open SRS',
+            action: () => setActiveTab(IELTSSection.Dashboard),
+        });
+        suggestions.push({
+            label: `Apply this vocab in a 90-second speaking turn`,
+            cta: 'Open Speaking',
+            action: () => setActiveTab(IELTSSection.Speaking),
+        });
+        suggestions.push({
+            label: `Read a passage to see these words in context`,
+            cta: 'Open Reading',
+            action: () => setActiveTab(IELTSSection.Reading),
         });
     }
 

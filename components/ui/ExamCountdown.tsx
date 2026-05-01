@@ -11,9 +11,10 @@ import { useAppContext } from '../../App';
 import { uxService } from '../../services/uxService';
 import { useToast } from './Toast';
 import { tokenStore, apiConfig } from '../../services/apiClient';
+import { IELTSSection } from '../../types';
 
 const ExamCountdown: React.FC = () => {
-    const { currentUser } = useAppContext();
+    const { currentUser, setActiveTab, activeTab } = useAppContext();
     const { toast } = useToast();
     if (!currentUser?.examDate) return null;
 
@@ -59,15 +60,27 @@ const ExamCountdown: React.FC = () => {
         }
     };
 
+    const showOpenDashboard = activeTab !== IELTSSection.Dashboard;
+
     return (
-        <div className={`rounded-lg border ${tone} px-3 py-2 flex items-center justify-between gap-3 text-sm mb-4`}>
+        <div className={`sticky top-0 z-20 -mt-2 mb-4 rounded-lg border ${tone} px-3 py-2 flex items-center justify-between gap-3 text-sm backdrop-blur-sm bg-opacity-90 dark:bg-opacity-90`}>
             <span className="font-medium truncate">{phrase}</span>
-            <button
-                onClick={downloadIcs}
-                className="text-xs px-2 py-1 rounded bg-white/60 dark:bg-slate-900/40 border border-current/30 hover:bg-white dark:hover:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-current flex-shrink-0"
-            >
-                Sync calendar
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+                {showOpenDashboard && days >= 0 && (
+                    <button
+                        onClick={() => setActiveTab(IELTSSection.Dashboard)}
+                        className="text-xs px-2 py-1 rounded bg-white/60 dark:bg-slate-900/40 border border-current/30 hover:bg-white dark:hover:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
+                    >
+                        Open today's plan
+                    </button>
+                )}
+                <button
+                    onClick={downloadIcs}
+                    className="text-xs px-2 py-1 rounded bg-white/60 dark:bg-slate-900/40 border border-current/30 hover:bg-white dark:hover:bg-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
+                >
+                    Sync calendar
+                </button>
+            </div>
         </div>
     );
 };

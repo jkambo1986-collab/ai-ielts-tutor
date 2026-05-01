@@ -565,3 +565,42 @@ PARTIAL_BAND_SCHEMA = {
     },
     "required": ["rolling_band", "confidence"],
 }
+
+
+# -- F3: "Why this band?" descriptor explainability -- #
+
+BAND_EXPLANATION_SCHEMA = {
+    "type": "object",
+    "description": "Decomposes a band score into the four official IELTS public band descriptors. Each descriptor cites the official descriptor language at the awarded band, lists evidence quotes from the user's text, and (when scoring < 9) names what would push it half a band higher.",
+    "properties": {
+        "overallBand": {"type": "number"},
+        "criteria": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Criterion name, e.g. 'Task Response', 'Coherence and Cohesion', 'Lexical Resource', 'Grammatical Range and Accuracy', or for speaking 'Fluency and Coherence', 'Pronunciation', etc.",
+                    },
+                    "band": {"type": "number"},
+                    "descriptorAtBand": {
+                        "type": "string",
+                        "description": "The official IELTS public band descriptor language for the awarded band on this criterion. Quote close to the published descriptor, paraphrased only minimally.",
+                    },
+                    "evidence": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "1-3 verbatim quotes from the user's essay/transcript that map to the descriptor language above.",
+                    },
+                    "toReachNextBand": {
+                        "type": "string",
+                        "description": "What specifically would lift this criterion half a band higher. Concrete action, not a platitude. Empty string when band is already 9.",
+                    },
+                },
+                "required": ["name", "band", "descriptorAtBand", "evidence", "toReachNextBand"],
+            },
+        },
+    },
+    "required": ["overallBand", "criteria"],
+}

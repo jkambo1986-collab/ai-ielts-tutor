@@ -28,8 +28,13 @@ import ReadingWpmWidget from './ui/ReadingWpmWidget';
 import LexicalTrendChart from './ui/LexicalTrendChart';
 import PronunciationHeatmap from './ui/PronunciationHeatmap';
 import TodayHero from './ui/TodayHero';
+import EmptyState from './ui/EmptyState';
+import CoachBriefCard from './ui/CoachBriefCard';
+import ExamDayMode from './ui/ExamDayMode';
 
 type DaysFilter = 7 | 30 | 'all';
+
+const COACH_VIEW_KEY = 'dashboard.coachView';
 
 const Dashboard: React.FC = () => {
     const { currentUser, setActiveTab, clearAllHistories } = useAppContext();
@@ -38,6 +43,19 @@ const Dashboard: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [view, setView] = useState<'overview' | 'error-log'>('overview');
+    const [coachView, setCoachView] = useState<boolean>(() => {
+        try {
+            const stored = localStorage.getItem(COACH_VIEW_KEY);
+            return stored === null ? true : stored === '1';
+        } catch {
+            return true;
+        }
+    });
+
+    const setCoachViewPersisted = useCallback((v: boolean) => {
+        setCoachView(v);
+        try { localStorage.setItem(COACH_VIEW_KEY, v ? '1' : '0'); } catch { /* ignore */ }
+    }, []);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -70,6 +88,8 @@ const Dashboard: React.FC = () => {
             Reading: IELTSSection.Reading,
             Listening: IELTSSection.Listening,
             Quiz: IELTSSection.Quiz,
+            Profile: IELTSSection.Profile,
+            MockTests: IELTSSection.MockTests,
         };
         if (map[target]) setActiveTab(map[target]);
     }, [setActiveTab]);
@@ -90,6 +110,12 @@ const Dashboard: React.FC = () => {
         ? data.counts.writing + data.counts.speaking + data.counts.reading + data.counts.listening
         : 0;
 
+    const daysUntilExam = currentUser?.examDate
+        ? Math.ceil((new Date(currentUser.examDate).getTime() - Date.now()) / 86400000)
+        : null;
+    const inExamMode = daysUntilExam !== null && daysUntilExam >= 0 && daysUntilExam <= 7;
+    const [bypassExamMode, setBypassExamMode] = useState(false);
+
     return (
         <div className="space-y-6">
             {/* Header / filters */}
@@ -100,7 +126,23 @@ const Dashboard: React.FC = () => {
                         Backend-driven analytics across writing, speaking, reading, and listening.
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-1 flex space-x-1">
+                        <button
+                            onClick={() => setCoachViewPersisted(true)}
+                            aria-pressed={coachView}
+                            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${coachView ? 'bg-blue-500 text-white shadow' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        >
+                            Coach view
+                        </button>
+                        <button
+                            onClick={() => setCoachViewPersisted(false)}
+                            aria-pressed={!coachView}
+                            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${!coachView ? 'bg-blue-500 text-white shadow' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        >
+                            Detailed analytics
+                        </button>
+                    </div>
                     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-1 flex space-x-1">
                         {([7, 30, 'all'] as DaysFilter[]).map(d => (
                             <button
@@ -136,10 +178,36 @@ const Dashboard: React.FC = () => {
                 <div className="py-12"><Loader text="Loading dashboard…" /></div>
             )}
 
-            {data && (
+            {data && totalSessions === 0 && !inExamMode && (
+                <EmptyState
+                    title="Welcome — let's get a baseline."
+                    body="Run a quick diagnostic across the four skills so the coach has real data to work with. About 15 minutes."
+                    primaryAction={{ label: 'Start with Reading', onClick: () => setActiveTab(IELTSSection.Reading) }}
+                    secondaryAction={{ label: 'Try Speaking instead', onClick: () => setActiveTab(IELTSSection.Speaking) }}
+                />
+            )}
+
+            {data && inExamMode && !bypassExamMode && (
+                <>
+                    <ExamDayMode daysUntilExam={daysUntilExam!} />
+                    <div className="text-center">
+                        <button
+                            onClick={() => setBypassExamMode(true)}
+                            className="text-xs font-medium text-slate-500 dark:text-slate-400 hover:underline"
+                        >
+                            Show full dashboard anyway →
+                        </button>
+                    </div>
+                </>
+            )}
+
+            {data && totalSessions > 0 && (!inExamMode || bypassExamMode) && (
                 <>
                     {/* Alerts (#28) */}
                     <AlertsBanner alerts={data.alerts} onDismiss={dismissAlert} onCta={handleAlertCta} />
+
+                    {/* F1 Daily Coach Brief — directive plan above the hero. */}
+                    <CoachBriefCard />
 
                     {/* Today hero — single next-action recommendation, top of dashboard. */}
                     <TodayHero
@@ -191,6 +259,19 @@ const Dashboard: React.FC = () => {
 
                     {/* Hero strip (#12 streak, #18 effective time, target) */}
                     <HeroStrip data={data} />
+
+                    {coachView && (
+                        <div className="text-center">
+                            <button
+                                onClick={() => setCoachViewPersisted(false)}
+                                className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                                Show full analytics →
+                            </button>
+                        </div>
+                    )}
+
+                    {!coachView && <>
 
                     {/* Earned badges */}
                     <Section
@@ -307,6 +388,7 @@ const Dashboard: React.FC = () => {
                             <li><strong>Calibration delta</strong>: predicted band − actual band; near zero means well-calibrated.</li>
                         </ul>
                     </Section>
+                    </>}
                 </>
             )}
         </div>

@@ -29,9 +29,55 @@ const PRIMARY_NAV: NavItem[] = [
     { name: IELTSSection.Quiz,             icon: QuizIcon,             description: 'Quick quizzes' },
 ];
 
+const MORE_PRACTICE_NAV: NavItem[] = [
+    { name: IELTSSection.MockTests,        icon: DashboardIcon,        description: 'Full-length simulations' },
+    { name: IELTSSection.VoiceJournal,     icon: SpeakingIcon,         description: 'Free-talk speaking' },
+    { name: IELTSSection.DebateRooms,      icon: SpeakingIcon,         description: 'Group debate practice' },
+    { name: IELTSSection.TutorMarketplace, icon: UserIcon,             description: '1-on-1 human tutors' },
+];
+
 const ACCOUNT_NAV: NavItem[] = [
     { name: IELTSSection.Profile, icon: UserIcon, description: 'Account & ESL preferences' },
 ];
+
+function renderNavButton(
+    item: NavItem,
+    activeTab: IELTSSection,
+    isSectionLoading: boolean,
+    collapsed: boolean,
+    handleNavClick: (n: IELTSSection) => void,
+) {
+    const Icon = item.icon;
+    const isActive = activeTab === item.name;
+    return (
+        <button
+            key={item.name}
+            role="tab"
+            aria-selected={isActive}
+            aria-controls="main-content"
+            id={`tab-${item.name}`}
+            onClick={() => handleNavClick(item.name)}
+            disabled={isSectionLoading}
+            title={collapsed ? item.name : undefined}
+            className={`
+                group w-full flex items-center gap-3 rounded-lg px-3 py-3 md:py-2.5
+                text-sm font-medium transition-colors duration-150
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
+                ${isActive
+                    ? 'bg-gradient-to-r from-blue-500 to-teal-400 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }
+                ${isSectionLoading ? 'opacity-70 cursor-not-allowed' : ''}
+            `}
+        >
+            <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400 group-hover:text-blue-500'}`} />
+            {!collapsed && <span className="flex-1 text-left truncate">{item.name}</span>}
+            {!collapsed && isActive && (
+                <span className="h-1.5 w-1.5 rounded-full bg-white/80" aria-hidden />
+            )}
+        </button>
+    );
+}
 
 const Sidebar: React.FC = () => {
     const {
@@ -59,13 +105,17 @@ const Sidebar: React.FC = () => {
         return undefined;
     }, [mobileOpen]);
 
+    const [moreOpen, setMoreOpen] = useState(true);
+
     if (!currentUser) return null;
     const isAdmin = ADMIN_ROLES.includes(currentUser.role);
+    const isInstructor = currentUser.role === 'instructor';
 
-    const items: NavItem[] = [
-        ...PRIMARY_NAV,
-        ...ACCOUNT_NAV,
-        ...(isAdmin ? [{ name: IELTSSection.Admin, icon: UserIcon, description: 'Sitemap & users' } as NavItem] : []),
+    const morePracticeItems: NavItem[] = [
+        ...MORE_PRACTICE_NAV,
+        ...(isAdmin || isInstructor
+            ? [{ name: IELTSSection.MarkerQueue, icon: UserIcon, description: 'Marker review queue' } as NavItem]
+            : []),
     ];
 
     const handleNavClick = (name: IELTSSection) => {
@@ -159,38 +209,28 @@ const Sidebar: React.FC = () => {
 
                 {/* Nav */}
                 <nav role="tablist" aria-label="IELTS Sections" className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-                    {items.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = activeTab === item.name;
-                        return (
-                            <button
-                                key={item.name}
-                                role="tab"
-                                aria-selected={isActive}
-                                aria-controls="main-content"
-                                id={`tab-${item.name}`}
-                                onClick={() => handleNavClick(item.name)}
-                                disabled={isSectionLoading}
-                                title={collapsed ? item.name : undefined}
-                                className={`
-                                    group w-full flex items-center gap-3 rounded-lg px-3 py-3 md:py-2.5
-                                    text-sm font-medium transition-colors duration-150
-                                    focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
-                                    ${isActive
-                                        ? 'bg-gradient-to-r from-blue-500 to-teal-400 text-white shadow-sm'
-                                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                    }
-                                    ${isSectionLoading ? 'opacity-70 cursor-not-allowed' : ''}
-                                `}
-                            >
-                                <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400 group-hover:text-blue-500'}`} />
-                                {!collapsed && <span className="flex-1 text-left truncate">{item.name}</span>}
-                                {!collapsed && isActive && (
-                                    <span className="h-1.5 w-1.5 rounded-full bg-white/80" aria-hidden />
-                                )}
-                            </button>
-                        );
-                    })}
+                    {PRIMARY_NAV.map((item) => renderNavButton(item, activeTab, isSectionLoading, collapsed, handleNavClick))}
+
+                    {/* Secondary "More practice" group */}
+                    {!collapsed && (
+                        <button
+                            type="button"
+                            onClick={() => setMoreOpen(o => !o)}
+                            aria-expanded={moreOpen}
+                            className="w-full flex items-center justify-between mt-4 mb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 focus:outline-none"
+                        >
+                            <span>More practice</span>
+                            <span aria-hidden className={`transition-transform ${moreOpen ? 'rotate-90' : ''}`}>›</span>
+                        </button>
+                    )}
+                    {moreOpen && morePracticeItems.map((item) => renderNavButton(item, activeTab, isSectionLoading, collapsed, handleNavClick))}
+
+                    {!collapsed && <div className="my-3 border-t border-slate-200 dark:border-slate-800" />}
+                    {ACCOUNT_NAV.map((item) => renderNavButton(item, activeTab, isSectionLoading, collapsed, handleNavClick))}
+                    {isAdmin && renderNavButton(
+                        { name: IELTSSection.Admin, icon: UserIcon, description: 'Sitemap & users' },
+                        activeTab, isSectionLoading, collapsed, handleNavClick,
+                    )}
                 </nav>
 
                 {/* Theme toggle (F5) */}

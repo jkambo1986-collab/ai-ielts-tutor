@@ -13,6 +13,9 @@ import { analyzeSpeakingPerformance, endSpeakingSession, generateContextualSpeak
 import { useToast } from './ui/Toast';
 import WarmupBanner from './ui/WarmupBanner';
 import CrossSkillChip from './ui/CrossSkillChip';
+import NextStepBridge from './ui/NextStepBridge';
+import ExplainabilityPane from './ui/ExplainabilityPane';
+import SessionReplay from './SessionReplay';
 import { calculateSpeakingSkill } from '../services/adaptiveLearningService';
 import Loader from './Loader';
 import { AlertTriangleIcon, MicOffIcon, PowerIcon, SpeakingIcon as MicIcon } from './Icons';
@@ -212,6 +215,7 @@ const SpeakingTutor: React.FC = () => {
   const [shareLinks, setShareLinks] = useState<Record<string, string>>({});
   const [historySearch, setHistorySearch] = useState('');
   const [historyPart, setHistoryPart] = useState<'all' | 'part1' | 'part2' | 'part3'>('all');
+  const [replaySession, setReplaySession] = useState<SpeakingSessionSummary | null>(null);
 
 
   // Refs to manage API sessions, audio contexts, and other persistent objects
@@ -1005,6 +1009,9 @@ Target Band Score: ${difficultyScore.toFixed(1)}`;
                                                 <button onClick={() => generateShareLink(session.id)} className="text-blue-600 dark:text-blue-400 hover:underline">
                                                     {shareLinks[session.id] ? 'Link copied ✓' : 'Share link'}
                                                 </button>
+                                                <button onClick={() => setReplaySession(session)} className="text-emerald-600 dark:text-emerald-400 hover:underline">
+                                                    Replay
+                                                </button>
                                                 <button
                                                     onClick={() => {
                                                         try { localStorage.setItem('reattempt_parent_speaking', session.id); } catch { /* ignore */ }
@@ -1087,6 +1094,15 @@ Target Band Score: ${difficultyScore.toFixed(1)}`;
                                                     <SpeakingFeedbackBlock title="Argumentative Skills" data={session.speakingAnalysis.argumentativeSkills} />
                                                 )}
                                             </div>
+                                            <ExplainabilityPane
+                                                skill="speaking"
+                                                band={session.speakingAnalysis.overallBandScore}
+                                                speaking={{ transcript: session.transcript || [] }}
+                                            />
+                                            <NextStepBridge
+                                                fromSection={IELTSSection.Speaking}
+                                                topic={session.topic}
+                                            />
                                         </div>
                                 )}
                                 </li>
@@ -1133,6 +1149,16 @@ Target Band Score: ${difficultyScore.toFixed(1)}`;
         {studioAnalysis && <PronunciationStudio analysis={studioAnalysis} />}
       </Modal>
       
+      {replaySession && (
+        <SessionReplay
+            open={!!replaySession}
+            onClose={() => setReplaySession(null)}
+            sessionId={replaySession.id}
+            transcript={replaySession.transcript || []}
+            title={`Replay: ${replaySession.topic}`}
+        />
+      )}
+
       <UpgradeModal
           isOpen={isUpgradeModalOpen}
           onClose={() => setIsUpgradeModalOpen(false)}

@@ -11,10 +11,12 @@ import Loader from './Loader';
 import { generateListeningTest, evaluateListeningAnswer, submitListeningSession } from '../services/geminiService';
 import ConfidenceModal from './dashboard/ConfidenceModal';
 import { calculateListeningSkill } from '../services/adaptiveLearningService';
-import { ListeningTest, ListeningQuestion, ListeningSessionSummary, AnswerEvaluation, ListeningTestType } from '../types';
+import { ListeningTest, ListeningQuestion, ListeningSessionSummary, AnswerEvaluation, ListeningTestType, IELTSSection } from '../types';
 import { useAppContext } from '../App';
 import { ReadingIcon, SpeakingIcon, UserIcon } from './Icons';
 import WarmupBanner from './ui/WarmupBanner';
+import NextStepBridge from './ui/NextStepBridge';
+import ConnectionLost from './ui/ConnectionLost';
 
 type PlaybackState = 'IDLE' | 'PLAYING' | 'PAUSED' | 'ENDED';
 
@@ -333,7 +335,7 @@ const ListeningTutor: React.FC<ListeningTutorProps> = () => {
   }
 
   if (error) {
-    return <Card><div role="alert" className="text-red-500 text-center p-4">{error} <Button onClick={handleStartNewTest} className="mt-4">Start New Test</Button></div></Card>;
+    return <Card><ConnectionLost message={error} onRetry={handleStartNewTest} /></Card>;
   }
   
   if (!test) {
@@ -466,7 +468,7 @@ const ListeningTutor: React.FC<ListeningTutorProps> = () => {
           </div>
           {!isSubmitted && (
             <div className="mt-8">
-                <Button 
+                <Button
                     onClick={() => setPredictionModalOpen(true)}
                     isLoading={isEvaluating}
                     disabled={Object.keys(userAnswers).length === 0}
@@ -474,6 +476,12 @@ const ListeningTutor: React.FC<ListeningTutorProps> = () => {
                     Check Answers
                 </Button>
             </div>
+          )}
+          {isSubmitted && (
+            <NextStepBridge
+              fromSection={IELTSSection.Listening}
+              topic={test?.title || ''}
+            />
           )}
         </div>
       </div>

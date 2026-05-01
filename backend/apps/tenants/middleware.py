@@ -23,6 +23,7 @@ EXEMPT_PATH_PREFIXES = (
     "/api/schema", "/api/v1/schema",
     "/api/share", "/api/v1/share",  # public share — token is the auth
     "/api/predict", "/api/v1/predict",  # public score-predictor lead-gen tool
+    "/api/public", "/api/v1/public",  # public read-only routes (guardian, profile)
     "/static",
 )
 

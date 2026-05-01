@@ -10,6 +10,7 @@ from apps.practice.views.writing_ai import (
     ContextualWritingPromptsView,
     EssayPlanView,
     EvaluateWritingView,
+    ExplainWritingBandView,
 )
 
 router = DefaultRouter()
@@ -17,6 +18,7 @@ router.register(r"sessions", WritingSessionViewSet, basename="writing-session")
 
 urlpatterns = [
     path("evaluate", EvaluateWritingView.as_view(), name="writing-evaluate"),
+    path("explain-band", ExplainWritingBandView.as_view(), name="writing-explain-band"),
     path("essay-plan", EssayPlanView.as_view(), name="writing-essay-plan"),
     path("cohesion-analysis", CohesionAnalysisView.as_view(), name="writing-cohesion"),
     path("contextual-prompts", ContextualWritingPromptsView.as_view(), name="writing-contextual-prompts"),

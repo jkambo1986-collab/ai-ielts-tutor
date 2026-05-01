@@ -9,8 +9,12 @@ import Button from './Button';
 import Loader from './Loader';
 import { generateQuiz, rephraseExplanation } from '../services/geminiService';
 import { calculateOverallSkill, bandToDifficulty } from '../services/adaptiveLearningService';
-import { Quiz, QuizDifficulty, QuizQuestion } from '../types';
+import { Quiz, QuizDifficulty, QuizQuestion, IELTSSection } from '../types';
 import { useAppContext } from '../App';
+import { dashboardService } from '../services/dashboardService';
+import { useToast } from './ui/Toast';
+import NextStepBridge from './ui/NextStepBridge';
+import ConnectionLost from './ui/ConnectionLost';
 
 interface QuizTutorProps {}
 
@@ -19,6 +23,7 @@ interface QuizTutorProps {}
  */
 const QuizTutor: React.FC<QuizTutorProps> = () => {
     const { currentUser: userProfile, writingHistory, readingHistory, listeningHistory, speakingHistory } = useAppContext();
+    const { toast } = useToast();
     // Component State
     const [difficulty, setDifficulty] = useState<QuizDifficulty | null>(null);
     const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -140,10 +145,54 @@ const QuizTutor: React.FC<QuizTutorProps> = () => {
     };
 
     /**
-     * Handles the submission of the quiz for grading.
+     * Handles the submission of the quiz for grading. Wrong answers are
+     * promoted to SRS error cards so they cycle back into review.
      */
     const handleSubmit = () => {
         setIsSubmitted(true);
+        if (!quiz) return;
+
+        const wrong = quiz.questions
+            .map((q, i) => ({ q, i, ans: userAnswers[i] }))
+            .filter(({ q, ans }) => ans && ans !== q.correctAnswer);
+        if (wrong.length === 0) return;
+
+        const lowerTitle = (quiz.title || '').toLowerCase();
+        const cardCategory = lowerTitle.includes('grammar')
+            ? 'grammar'
+            : lowerTitle.includes('listening')
+            ? 'coherence'
+            : 'lexical';
+        const sourceType = lowerTitle.includes('listening') ? 'listening' : 'reading';
+        const sessionId =
+            typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+        Promise.all(
+            wrong.map(({ q, ans }) =>
+                dashboardService.createErrorCard({
+                    source_session_type: sourceType,
+                    source_session_id: sessionId,
+                    category: cardCategory,
+                    error_text: `${q.question}\nYou picked: ${ans}`,
+                    correction_text: `Correct: ${q.correctAnswer}`,
+                    explanation: q.explanation,
+                }).catch((e) => {
+                    console.warn('Failed to create error card from quiz', e);
+                    return null;
+                }),
+            ),
+        ).then((results) => {
+            const created = results.filter(Boolean).length;
+            if (created > 0) {
+                toast({
+                    kind: 'info',
+                    title: `${created} flashcard${created === 1 ? '' : 's'} added`,
+                    body: 'Wrong answers are queued for SRS review.',
+                });
+            }
+        });
     };
 
     /**
@@ -191,10 +240,7 @@ const QuizTutor: React.FC<QuizTutorProps> = () => {
                 {isLoading && !isAdaptiveMode && <Loader text="Generating your quiz..." />}
                 
                 {error && (
-                    <div className="text-center" role="alert">
-                        <p className="text-red-500 mb-4">{error}</p>
-                        <Button onClick={handleNewQuiz} variant="secondary">Try Again</Button>
-                    </div>
+                    <ConnectionLost message={error} onRetry={handleNewQuiz} />
                 )}
 
                 {quiz && !isLoading && (
@@ -232,6 +278,13 @@ const QuizTutor: React.FC<QuizTutorProps> = () => {
                                 </Button>
                             )}
                         </div>
+
+                        {isSubmitted && (
+                            <NextStepBridge
+                                fromSection={IELTSSection.Quiz}
+                                topic={quiz.title}
+                            />
+                        )}
                     </div>
                 )}
             </div>

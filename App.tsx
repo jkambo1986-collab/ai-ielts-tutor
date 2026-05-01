@@ -22,6 +22,8 @@ import ExamCountdown from './components/ui/ExamCountdown';
 import OnboardingWizard from './components/onboarding/OnboardingWizard';
 import KeyboardHelp, { useKeyboardHelp } from './components/ui/KeyboardHelp';
 import PublicProgressPage from './components/PublicProgressPage';
+import GuardianPublicPage from './components/GuardianPublicPage';
+import CommandPalette from './components/ui/CommandPalette';
 
 // -- APP CONTEXT -- //
 const AppContext = createContext<IAppContext | null>(null);
@@ -48,6 +50,11 @@ const IntegratedSkillsLab = lazy(() => import('./components/IntegratedSkillsLab'
 const QuizTutor = lazy(() => import('./components/QuizTutor'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 const ProfilePage = lazy(() => import('./components/ProfilePage'));
+const MockTestsPage = lazy(() => import('./components/MockTestsPage'));
+const VoiceJournalPage = lazy(() => import('./components/VoiceJournalPage'));
+const DebateRoomsPage = lazy(() => import('./components/DebateRoomsPage'));
+const TutorMarketplacePage = lazy(() => import('./components/TutorMarketplacePage'));
+const MarkerQueuePage = lazy(() => import('./components/MarkerQueuePage'));
 
 /**
  * Renders the main content of the application based on the active tab.
@@ -95,6 +102,11 @@ const AppContent: React.FC = () => {
             case IELTSSection.Listening: return <ListeningTutor />;
             case IELTSSection.IntegratedSkills: return <IntegratedSkillsLab />;
             case IELTSSection.Quiz: return <QuizTutor />;
+            case IELTSSection.MockTests: return <MockTestsPage />;
+            case IELTSSection.VoiceJournal: return <VoiceJournalPage />;
+            case IELTSSection.DebateRooms: return <DebateRoomsPage />;
+            case IELTSSection.TutorMarketplace: return <TutorMarketplacePage />;
+            case IELTSSection.MarkerQueue: return <MarkerQueuePage />;
             case IELTSSection.Profile: return <ProfilePage />;
             case IELTSSection.Admin: return <AdminPanel />;
             default: return null;
@@ -144,6 +156,7 @@ const AppContent: React.FC = () => {
                 />
             )}
             <KeyboardHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+            <CommandPalette />
         </div>
     );
 };
@@ -161,6 +174,11 @@ const SECTION_BLURBS: Partial<Record<IELTSSection, string>> = {
     [IELTSSection.Listening]: 'Listen to audio scripts and test your understanding.',
     [IELTSSection.IntegratedSkills]: 'Combine reading, listening, and writing in one task.',
     [IELTSSection.Quiz]: 'Quick warm-ups across grammar, reading and listening.',
+    [IELTSSection.MockTests]: 'Full-length IELTS simulations with readiness scoring.',
+    [IELTSSection.VoiceJournal]: 'Free-talk speaking practice — fluency without exam pressure.',
+    [IELTSSection.DebateRooms]: 'Group speaking with peers and an AI moderator.',
+    [IELTSSection.TutorMarketplace]: 'Book a 1-on-1 session with a live human tutor.',
+    [IELTSSection.MarkerQueue]: 'Human-grading review queue.',
     [IELTSSection.Profile]: 'Account info and ESL preferences.',
     [IELTSSection.Admin]: 'Sitemap, users, and platform usage.',
 };
@@ -395,6 +413,16 @@ const App: React.FC = () => {
       return (
           <ThemeProvider>
               <PublicProgressPage slug={publicMatch[1]} />
+          </ThemeProvider>
+      );
+  }
+
+  // F2 Guardian public read-only page: /g/<token>
+  const guardianMatch = path.match(/^\/g\/([\w-]+)\/?$/);
+  if (guardianMatch) {
+      return (
+          <ThemeProvider>
+              <GuardianPublicPage token={guardianMatch[1]} />
           </ThemeProvider>
       );
   }

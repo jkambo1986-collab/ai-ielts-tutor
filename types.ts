@@ -13,6 +13,11 @@ export enum IELTSSection {
   Listening = 'Listening',
   IntegratedSkills = 'Integrated Skills',
   Quiz = 'Quiz', // Added new Quiz section
+  MockTests = 'Mock Tests', // Full-test bank (analytics/mock-tests)
+  VoiceJournal = 'Voice Journal', // Free-talk speaking practice
+  DebateRooms = 'Debate Rooms', // Group speaking with peers + AI moderator
+  TutorMarketplace = 'Tutors', // 1-on-1 live human tutor bookings
+  MarkerQueue = 'Marker Queue', // Human-grading queue (markers only)
   Profile = 'Profile', // Account + ESL preferences
   Admin = 'Admin', // Admin-only — sitemap, users, usage stats
 }

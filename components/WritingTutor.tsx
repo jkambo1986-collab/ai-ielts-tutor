@@ -22,6 +22,7 @@ import FeedbackThumbs from './ui/FeedbackThumbs';
 import { useAutosave } from '../services/autosaveHook';
 import SaveIndicator from './ui/SaveIndicator';
 import NextStepBridge from './ui/NextStepBridge';
+import ExplainabilityPane from './ui/ExplainabilityPane';
 import { calculateWritingSkill } from '../services/adaptiveLearningService';
 import { WritingFeedback, FeedbackCriterion, WritingSessionSummary, EssayPlan, CohesionMap, SubscriptionPlan, ContextualWritingPrompt, IELTSSection } from '../types';
 import { WRITING_TASK_2_PROMPTS } from '../constants';
@@ -827,7 +828,14 @@ const WritingTutor: React.FC = () => {
       </Modal>
 
       {feedback && (
-          <NextStepBridge fromSection={IELTSSection.Writing} topic={prompt} />
+          <>
+            <ExplainabilityPane
+                skill="writing"
+                band={feedback.bandScore}
+                writing={{ prompt, essay }}
+            />
+            <NextStepBridge fromSection={IELTSSection.Writing} topic={prompt} />
+          </>
       )}
     </>
   );

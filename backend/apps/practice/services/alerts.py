@@ -32,6 +32,13 @@ REGRESSION_THRESHOLD_BAND = 0.5
 REGRESSION_LOOKBACK_SESSIONS = 6  # earlier 3 vs latest 3
 INACTIVITY_DAYS = 5
 
+# Goal renegotiation: if the recent average band has been ≥ this far below
+# target for ≥ this many days, prompt the user to lower target or extend exam
+# date rather than letting the gap fester.
+GOAL_GAP_BAND = 1.0
+GOAL_GAP_WINDOW_DAYS = 21
+GOAL_GAP_MIN_SESSIONS = 4
+
 
 def _band_series_writing(user) -> list[float]:
     qs = (
@@ -380,8 +387,61 @@ def generate_alerts(user) -> list[DashboardAlert]:
                 cta_target="Writing" if direction == "over" else "Speaking",
             ))
 
-    # Goal reached
+    # Goal renegotiation: 21-day average band is ≥ GOAL_GAP_BAND below target.
+    # Pushes the user to either lower target_score or extend exam_date rather
+    # than grinding against an unreachable goal. Fires once per skill per
+    # rolling 7-day window via _alert_exists.
     target = float(user.target_score or 7.0)
+    cutoff = timezone.now() - timedelta(days=GOAL_GAP_WINDOW_DAYS)
+    for skill, series_recent in (
+        ("writing", [
+            float(b) for b in WritingSession.objects.filter(
+                user=user, deleted_at__isnull=True, band_score__isnull=False,
+                created_at__gte=cutoff,
+            ).values_list("band_score", flat=True)
+        ]),
+        ("speaking", [
+            float(a["overallBandScore"]) for a in SpeakingSession.objects.filter(
+                user=user, deleted_at__isnull=True, analysis__isnull=False,
+                created_at__gte=cutoff,
+            ).values_list("analysis", flat=True)
+            if isinstance(a, dict) and a.get("overallBandScore") is not None
+        ]),
+    ):
+        if len(series_recent) < GOAL_GAP_MIN_SESSIONS:
+            continue
+        recent_avg = mean(series_recent)
+        gap = target - recent_avg
+        if gap < GOAL_GAP_BAND:
+            continue
+        if _alert_exists(
+            user, DashboardAlert.TYPE_QUICK_WIN,
+            {"kind": "goal_renegotiation", "skill": skill},
+        ):
+            continue
+        created.append(DashboardAlert.objects.create(
+            user=user, institute=user.institute,
+            alert_type=DashboardAlert.TYPE_QUICK_WIN,
+            severity=DashboardAlert.SEVERITY_WARNING,
+            title="Time to renegotiate your goal?",
+            body=(
+                f"Your {GOAL_GAP_WINDOW_DAYS}-day {skill} average is {recent_avg:.1f}, "
+                f"about {gap:.1f} below your target of {target:.1f}. "
+                "Lowering target or extending exam date keeps motivation honest."
+            ),
+            payload={
+                "kind": "goal_renegotiation",
+                "skill": skill,
+                "recent_avg": float(recent_avg),
+                "target": target,
+                "gap": float(gap),
+                "samples": len(series_recent),
+            },
+            cta_label="Adjust goal",
+            cta_target="Profile",
+        ))
+
+    # Goal reached
     for skill, series in (("writing", writing_series), ("speaking", speaking_series)):
         if (
             series

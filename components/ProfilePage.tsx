@@ -1,6 +1,6 @@
 /**
  * @file Dedicated profile / settings page.
- * Sections: identity card, IELTS preferences, ESL preferences, account info.
+ * Tabbed: Account · Preferences · Notifications · Privacy · Sharing.
  * All edits go through context.handleProfileUpdate (PATCH /auth/me).
  */
 
@@ -12,6 +12,11 @@ import {
 import NotificationPrefsPanel from './ui/NotificationPrefs';
 import PublicProfileToggle from './PublicProfileToggle';
 import CertificateCard from './dashboard/CertificateCard';
+import GuardianManagementCard from './GuardianManagementCard';
+import OnboardingWizard from './onboarding/OnboardingWizard';
+import { uxService } from './../services/uxService';
+import { tokenStore } from './../services/apiClient';
+import { useToast } from './ui/Toast';
 
 const NATIVE_LANGUAGE_OPTIONS: { value: NativeLanguageCode; label: string }[] = [
     { value: '',     label: 'Prefer not to say' },
@@ -61,6 +66,8 @@ const TARGET_SCORE_OPTIONS = [
     5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0,
 ];
 
+const COMMITMENT_OPTIONS = [15, 30, 45, 60, 90];
+
 const ROLE_LABEL: Record<string, string> = {
     super_admin: 'Super Admin',
     institute_admin: 'Institute Admin',
@@ -79,8 +86,21 @@ const formatDate = (iso?: string) => {
     }
 };
 
+type Tab = 'account' | 'preferences' | 'notifications' | 'privacy' | 'sharing';
+
+const TABS: { id: Tab; label: string }[] = [
+    { id: 'account',       label: 'Account' },
+    { id: 'preferences',   label: 'Preferences' },
+    { id: 'notifications', label: 'Notifications' },
+    { id: 'privacy',       label: 'Privacy' },
+    { id: 'sharing',       label: 'Sharing' },
+];
+
 const ProfilePage: React.FC = () => {
-    const { currentUser, handleProfileUpdate } = useAppContext();
+    const { currentUser, handleProfileUpdate, clearAllHistories } = useAppContext();
+    const { toast } = useToast();
+
+    const [tab, setTab] = useState<Tab>('account');
 
     // Local form state (string-typed for selects). Initialized from currentUser
     // and reset whenever the upstream profile changes (e.g. after save).
@@ -89,9 +109,13 @@ const ProfilePage: React.FC = () => {
     const [adaptive, setAdaptive] = useState(false);
     const [nativeLanguage, setNativeLanguage] = useState<NativeLanguageCode>('');
     const [proficiency, setProficiency] = useState<EnglishProficiencyLevel>('');
+    const [examDate, setExamDate] = useState<string>('');
+    const [dailyCommitment, setDailyCommitment] = useState<number>(30);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [savedAt, setSavedAt] = useState<number | null>(null);
+    const [showWizard, setShowWizard] = useState(false);
+    const [downloadingIcs, setDownloadingIcs] = useState(false);
 
     useEffect(() => {
         if (!currentUser) return;
@@ -100,6 +124,8 @@ const ProfilePage: React.FC = () => {
         setAdaptive(currentUser.isAdaptiveLearningEnabled);
         setNativeLanguage(currentUser.nativeLanguage ?? '');
         setProficiency(currentUser.englishProficiencyLevel ?? '');
+        setExamDate(currentUser.examDate ?? '');
+        setDailyCommitment(currentUser.dailyCommitmentMinutes ?? 30);
     }, [currentUser]);
 
     const isDirty = useMemo(() => {
@@ -110,8 +136,10 @@ const ProfilePage: React.FC = () => {
             || adaptive !== currentUser.isAdaptiveLearningEnabled
             || nativeLanguage !== (currentUser.nativeLanguage ?? '')
             || proficiency !== (currentUser.englishProficiencyLevel ?? '')
+            || examDate !== (currentUser.examDate ?? '')
+            || dailyCommitment !== (currentUser.dailyCommitmentMinutes ?? 30)
         );
-    }, [currentUser, name, targetScore, adaptive, nativeLanguage, proficiency]);
+    }, [currentUser, name, targetScore, adaptive, nativeLanguage, proficiency, examDate, dailyCommitment]);
 
     if (!currentUser) return null;
 
@@ -125,12 +153,43 @@ const ProfilePage: React.FC = () => {
                 isAdaptiveLearningEnabled: adaptive,
                 nativeLanguage,
                 englishProficiencyLevel: proficiency,
+                examDate: examDate || null,
+                dailyCommitmentMinutes: dailyCommitment,
             });
             setSavedAt(Date.now());
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Failed to save profile.');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleClearHistory = () => {
+        if (!window.confirm('Delete all your local practice history? This cannot be undone.')) return;
+        clearAllHistories();
+        toast({ kind: 'success', title: 'Local history cleared' });
+    };
+
+    const handleDownloadCalendar = async () => {
+        setDownloadingIcs(true);
+        try {
+            const url = uxService.calendarIcsUrl();
+            const token = tokenStore.getAccess();
+            const r = await fetch(url, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!r.ok) throw new Error(`Server returned ${r.status}`);
+            const blob = await r.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'ielts-practice.ics';
+            a.click();
+            URL.revokeObjectURL(a.href);
+            toast({ kind: 'success', title: 'Calendar downloaded' });
+        } catch (e) {
+            toast({ kind: 'error', title: 'Calendar download failed', body: e instanceof Error ? e.message : '' });
+        } finally {
+            setDownloadingIcs(false);
         }
     };
 
@@ -164,121 +223,237 @@ const ProfilePage: React.FC = () => {
                 </div>
             </section>
 
+            {/* Tab nav */}
+            <div role="tablist" aria-label="Profile sections" className="flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-800 -mx-2 px-2">
+                {TABS.map(t => {
+                    const active = tab === t.id;
+                    return (
+                        <button
+                            key={t.id}
+                            role="tab"
+                            aria-selected={active}
+                            onClick={() => setTab(t.id)}
+                            className={`
+                                px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors
+                                border-b-2 -mb-px
+                                ${active
+                                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                                    : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
+                                }
+                            `}
+                        >
+                            {t.label}
+                        </button>
+                    );
+                })}
+            </div>
+
             {error && (
                 <div role="alert" className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-sm rounded-lg px-4 py-3">
                     {error}
                 </div>
             )}
 
-            {/* IELTS preferences */}
-            <Section title="IELTS Preferences" subtitle="Set your goals and how the platform adapts to you.">
-                <Field label="Display name" htmlFor="profile-name">
-                    <input
-                        id="profile-name"
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                </Field>
+            {tab === 'account' && (
+                <>
+                    <Section title="Display name" subtitle="How you appear in the app.">
+                        <Field label="Display name" htmlFor="profile-name">
+                            <input
+                                id="profile-name"
+                                type="text"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                        </Field>
+                    </Section>
 
-                <Field label="Target band score" htmlFor="profile-target">
-                    <select
-                        id="profile-target"
-                        value={targetScore}
-                        onChange={(e) => setTargetScore(parseFloat(e.target.value))}
-                        className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    <Section title="Account" subtitle="Read-only details from your account record.">
+                        <ReadOnlyRow label="Email" value={currentUser.email} />
+                        <ReadOnlyRow label="Role" value={ROLE_LABEL[currentUser.role] ?? currentUser.role} />
+                        <ReadOnlyRow label="Plan" value={currentUser.plan} />
+                        <ReadOnlyRow label="Institute" value={currentUser.instituteSlug ?? '—'} />
+                        <ReadOnlyRow label="Date joined" value={formatDate(currentUser.dateJoined)} />
+                        {currentUser.subscriptionEndDate && (
+                            <ReadOnlyRow label="Subscription ends" value={formatDate(currentUser.subscriptionEndDate)} />
+                        )}
+                    </Section>
+
+                    <Section title="Re-run setup" subtitle="Walk through the onboarding wizard again to update your goals.">
+                        <button
+                            type="button"
+                            onClick={() => setShowWizard(true)}
+                            className="text-sm font-medium px-4 py-2 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        >
+                            Open onboarding wizard
+                        </button>
+                    </Section>
+                </>
+            )}
+
+            {tab === 'preferences' && (
+                <>
+                    <Section title="IELTS Preferences" subtitle="Set your goals and how the platform adapts to you.">
+                        <Field label="Target band score" htmlFor="profile-target">
+                            <select
+                                id="profile-target"
+                                value={targetScore}
+                                onChange={(e) => setTargetScore(parseFloat(e.target.value))}
+                                className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                {TARGET_SCORE_OPTIONS.map(s => (
+                                    <option key={s} value={s}>{s.toFixed(1)}</option>
+                                ))}
+                            </select>
+                        </Field>
+
+                        <Field label="Exam date" htmlFor="profile-exam-date" hint="Leave blank if you haven't booked yet.">
+                            <input
+                                id="profile-exam-date"
+                                type="date"
+                                value={examDate}
+                                onChange={(e) => setExamDate(e.target.value)}
+                                className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                        </Field>
+
+                        <Field label="Daily commitment" htmlFor="profile-commit" hint="Used for streaks and study plans.">
+                            <select
+                                id="profile-commit"
+                                value={dailyCommitment}
+                                onChange={(e) => setDailyCommitment(parseInt(e.target.value, 10))}
+                                className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                {COMMITMENT_OPTIONS.map(m => (
+                                    <option key={m} value={m}>{m} minutes / day</option>
+                                ))}
+                            </select>
+                        </Field>
+
+                        <Field
+                            label="Adaptive learning"
+                            htmlFor="profile-adaptive"
+                            hint="When on, the AI tutor adjusts task difficulty based on your recent performance."
+                        >
+                            <Toggle id="profile-adaptive" checked={adaptive} onChange={setAdaptive} />
+                        </Field>
+                    </Section>
+
+                    <Section
+                        title="ESL Preferences"
+                        subtitle="Tell us about your language background so feedback can be tailored to common L1-influenced patterns."
                     >
-                        {TARGET_SCORE_OPTIONS.map(s => (
-                            <option key={s} value={s}>{s.toFixed(1)}</option>
-                        ))}
-                    </select>
-                </Field>
+                        <Field
+                            label="Native language"
+                            htmlFor="profile-l1"
+                            hint="Your first / strongest language."
+                        >
+                            <select
+                                id="profile-l1"
+                                value={nativeLanguage}
+                                onChange={(e) => setNativeLanguage(e.target.value as NativeLanguageCode)}
+                                className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                {NATIVE_LANGUAGE_OPTIONS.map(o => (
+                                    <option key={o.value || 'unset'} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
+                        </Field>
 
-                <Field
-                    label="Adaptive learning"
-                    htmlFor="profile-adaptive"
-                    hint="When on, the AI tutor adjusts task difficulty based on your recent performance."
-                >
-                    <Toggle id="profile-adaptive" checked={adaptive} onChange={setAdaptive} />
-                </Field>
-            </Section>
+                        <Field
+                            label="Current English level"
+                            htmlFor="profile-cefr"
+                            hint="Use this if you've taken a placement test or already know your CEFR level."
+                        >
+                            <select
+                                id="profile-cefr"
+                                value={proficiency}
+                                onChange={(e) => setProficiency(e.target.value as EnglishProficiencyLevel)}
+                                className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                {PROFICIENCY_OPTIONS.map(o => (
+                                    <option key={o.value || 'unset'} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
+                        </Field>
+                    </Section>
+                </>
+            )}
 
-            {/* ESL preferences */}
-            <Section
-                title="ESL Preferences"
-                subtitle="Tell us about your language background so feedback can be tailored to common L1-influenced patterns."
-            >
-                <Field
-                    label="Native language"
-                    htmlFor="profile-l1"
-                    hint="Your first / strongest language."
-                >
-                    <select
-                        id="profile-l1"
-                        value={nativeLanguage}
-                        onChange={(e) => setNativeLanguage(e.target.value as NativeLanguageCode)}
-                        className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            {tab === 'notifications' && <NotificationPrefsPanel />}
+
+            {tab === 'privacy' && (
+                <Section title="Privacy & data" subtitle="Manage your local cache and exported data.">
+                    <div className="space-y-4">
+                        <div className="flex items-start justify-between gap-4 flex-wrap">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Clear local history</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                    Removes locally cached session summaries. Server-side data is unaffected.
+                                </p>
+                            </div>
+                            <button
+                                onClick={handleClearHistory}
+                                className="text-sm font-medium px-4 py-2 rounded-md border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40"
+                            >
+                                Clear local history
+                            </button>
+                        </div>
+                        <div className="flex items-start justify-between gap-4 flex-wrap">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Calendar export</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                    Download your sessions and exam date as an .ics file you can import into any calendar app.
+                                </p>
+                            </div>
+                            <button
+                                onClick={handleDownloadCalendar}
+                                disabled={downloadingIcs}
+                                className="text-sm font-medium px-4 py-2 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60"
+                            >
+                                {downloadingIcs ? 'Downloading…' : 'Download .ics'}
+                            </button>
+                        </div>
+                    </div>
+                </Section>
+            )}
+
+            {tab === 'sharing' && (
+                <>
+                    <PublicProfileToggle />
+                    <GuardianManagementCard />
+                    <CertificateCard />
+                </>
+            )}
+
+            {/* Save bar — always visible when changes are pending on Account/Preferences tabs */}
+            {(tab === 'account' || tab === 'preferences') && (
+                <div className="sticky bottom-0 -mx-4 sm:-mx-6 lg:-mx-10 px-4 sm:px-6 lg:px-10 py-3 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
+                    {savedAt && !isDirty && !saving && (
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved.</span>
+                    )}
+                    <button
+                        type="button"
+                        disabled={!isDirty || saving}
+                        onClick={handleSave}
+                        className={`
+                            px-4 py-2 rounded-md text-sm font-medium transition-colors
+                            ${(!isDirty || saving)
+                                ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-500'}
+                        `}
                     >
-                        {NATIVE_LANGUAGE_OPTIONS.map(o => (
-                            <option key={o.value || 'unset'} value={o.value}>{o.label}</option>
-                        ))}
-                    </select>
-                </Field>
+                        {saving ? 'Saving…' : 'Save changes'}
+                    </button>
+                </div>
+            )}
 
-                <Field
-                    label="Current English level"
-                    htmlFor="profile-cefr"
-                    hint="Use this if you've taken a placement test or already know your CEFR level."
-                >
-                    <select
-                        id="profile-cefr"
-                        value={proficiency}
-                        onChange={(e) => setProficiency(e.target.value as EnglishProficiencyLevel)}
-                        className="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                        {PROFICIENCY_OPTIONS.map(o => (
-                            <option key={o.value || 'unset'} value={o.value}>{o.label}</option>
-                        ))}
-                    </select>
-                </Field>
-            </Section>
-
-            {/* Account info (read-only) */}
-            <Section title="Account" subtitle="Read-only details from your account record.">
-                <ReadOnlyRow label="Email" value={currentUser.email} />
-                <ReadOnlyRow label="Role" value={ROLE_LABEL[currentUser.role] ?? currentUser.role} />
-                <ReadOnlyRow label="Plan" value={currentUser.plan} />
-                <ReadOnlyRow label="Institute" value={currentUser.instituteSlug ?? '—'} />
-                <ReadOnlyRow label="Date joined" value={formatDate(currentUser.dateJoined)} />
-                {currentUser.subscriptionEndDate && (
-                    <ReadOnlyRow label="Subscription ends" value={formatDate(currentUser.subscriptionEndDate)} />
-                )}
-            </Section>
-
-            <NotificationPrefsPanel />
-            <PublicProfileToggle />
-            <CertificateCard />
-
-            {/* Save bar */}
-            <div className="sticky bottom-0 -mx-4 sm:-mx-6 lg:-mx-10 px-4 sm:px-6 lg:px-10 py-3 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
-                {savedAt && !isDirty && !saving && (
-                    <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved.</span>
-                )}
-                <button
-                    type="button"
-                    disabled={!isDirty || saving}
-                    onClick={handleSave}
-                    className={`
-                        px-4 py-2 rounded-md text-sm font-medium transition-colors
-                        ${(!isDirty || saving)
-                            ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
-                            : 'bg-blue-600 text-white hover:bg-blue-500'}
-                    `}
-                >
-                    {saving ? 'Saving…' : 'Save changes'}
-                </button>
-            </div>
+            {showWizard && (
+                <OnboardingWizard
+                    onComplete={() => setShowWizard(false)}
+                    onSkip={() => setShowWizard(false)}
+                />
+            )}
         </div>
     );
 };

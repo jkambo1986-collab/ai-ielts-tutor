@@ -12,8 +12,11 @@ import ConfidenceModal from './dashboard/ConfidenceModal';
 import { calculateReadingSkill } from '../services/adaptiveLearningService';
 import { ReadingTest, ReadingQuestion, AnswerEvaluation, ReadingSessionSummary, ReadingTestType } from '../types';
 import { useAppContext } from '../App';
+import { IELTSSection } from '../types';
 import { ClockIcon, ReadingIcon, SearchIcon } from './Icons';
 import WarmupBanner from './ui/WarmupBanner';
+import NextStepBridge from './ui/NextStepBridge';
+import ConnectionLost from './ui/ConnectionLost';
 
 interface ReadingTutorProps {}
 
@@ -194,7 +197,7 @@ const ReadingTutor: React.FC<ReadingTutorProps> = () => {
 
   // Render an error state if the test fails to load.
   if (error) {
-    return <Card><div role="alert" className="text-red-500 text-center p-4">{error} <Button onClick={handleStartNewTest} className="mt-4">Try Again</Button></div></Card>;
+    return <Card><ConnectionLost message={error} onRetry={handleStartNewTest} /></Card>;
   }
 
   // Render test selection screen if no test is active
@@ -300,6 +303,12 @@ const ReadingTutor: React.FC<ReadingTutorProps> = () => {
                 Check Answers
             </Button>
           </div>
+          {Object.keys(evaluations).length > 0 && (
+            <NextStepBridge
+              fromSection={IELTSSection.Reading}
+              topic={test?.passageTitle || ''}
+            />
+          )}
         </div>
       </div>
     </Card>

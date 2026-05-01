@@ -1118,3 +1118,60 @@ Respond with the rewritten answer ONLY — no explanation, no preamble."""
         "original": user_text,
         "rephrased": rephrased,
     }
+
+
+# -- F3: descriptor-anchored band explanation -- #
+
+def explain_writing_band(
+    *,
+    prompt: str,
+    essay: str,
+    band: float,
+) -> dict:
+    """Decompose a writing band into the four IELTS public band descriptors,
+    with descriptor-language citations and evidence quotes from the essay.
+    """
+    full_prompt = f"""You are an expert IELTS examiner. The student wrote the essay below in response to the prompt, and was awarded an overall band of {band}. Decompose that band into the four official IELTS Writing Task 2 public band descriptor criteria: Task Response, Coherence and Cohesion, Lexical Resource, and Grammatical Range and Accuracy.
+
+For each criterion:
+1. State the band you assign (0.5 increments).
+2. Quote the official IELTS public band descriptor language at that band — close to the published wording, paraphrased only when needed for brevity.
+3. Quote 1-3 verbatim sentences or phrases from the user's essay that map to that descriptor language. These are the evidence ties.
+4. Name one concrete change the student could make to lift the criterion half a band higher. Skip if the band is already 9.
+
+Respond ONLY in the requested JSON format. Be exact about descriptor language — examiners reading this should recognise it.
+
+Prompt: "{prompt}"
+
+Essay:
+"{essay}\""""
+    return get_client().generate_json(full_prompt, schemas.BAND_EXPLANATION_SCHEMA)
+
+
+def explain_speaking_band(
+    *,
+    transcript: list[dict],
+    band: float,
+) -> dict:
+    """Decompose a speaking band into the four IELTS public band descriptors:
+    Fluency and Coherence, Lexical Resource, Grammatical Range and Accuracy,
+    Pronunciation. Cites the descriptor language at the awarded band and
+    quotes verbatim from the transcript.
+    """
+    flat = "\n".join(
+        f"{t.get('speaker', '?')}: {t.get('text', '')}"
+        for t in transcript if t.get('text')
+    )
+    full_prompt = f"""You are an expert IELTS examiner. The candidate's speaking transcript below earned an overall band of {band}. Decompose that band into the four official IELTS Speaking public band descriptor criteria: Fluency and Coherence, Lexical Resource, Grammatical Range and Accuracy, and Pronunciation.
+
+For each criterion:
+1. State the band you assign (0.5 increments).
+2. Quote the official IELTS public band descriptor language at that band — close to the published wording.
+3. Quote 1-3 verbatim phrases from the candidate's turns that map to that descriptor language.
+4. Name one concrete change that would lift the criterion half a band higher. Skip if band is 9.
+
+Respond ONLY in the requested JSON format. Be exact about descriptor language.
+
+Transcript:
+{flat}"""
+    return get_client().generate_json(full_prompt, schemas.BAND_EXPLANATION_SCHEMA)

@@ -17,6 +17,7 @@ from apps.practice.views.speaking_ai import (
     AnalyzeTranscriptView,
     ContextualSpeakingPromptsView,
     EndSessionView,
+    ExplainSpeakingBandView,
     PronunciationPracticeView,
     StartSessionView,
 )
@@ -45,6 +46,7 @@ urlpatterns = [
     path("start-session", StartSessionView.as_view(), name="speaking-start"),
     path("end-session", EndSessionView.as_view(), name="speaking-end"),
     path("analyze-transcript", AnalyzeTranscriptView.as_view(), name="speaking-analyze"),
+    path("explain-band", ExplainSpeakingBandView.as_view(), name="speaking-explain-band"),
     path("contextual-prompts", ContextualSpeakingPromptsView.as_view(), name="speaking-contextual-prompts"),
     path("pronunciation-practice", PronunciationPracticeView.as_view(), name="speaking-pronunciation"),
 

@@ -296,6 +296,31 @@ class EndSessionView(APIView):
         )
 
 
+class _ExplainSpeakingBandInput(serializers.Serializer):
+    transcript = serializers.JSONField()
+    band = serializers.FloatField(min_value=1.0, max_value=9.0)
+
+
+class ExplainSpeakingBandView(APIView):
+    """F3 — descriptor-anchored band explanation for speaking."""
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "ai_analyze"
+
+    def post(self, request):
+        s = _ExplainSpeakingBandInput(data=request.data)
+        s.is_valid(raise_exception=True)
+        transcript = s.validated_data["transcript"]
+        if not isinstance(transcript, list):
+            return Response({"detail": "transcript must be an array of turns"}, status=400)
+        from apps.ai import service as ai_service
+        result = ai_service.explain_speaking_band(
+            transcript=transcript,
+            band=s.validated_data["band"],
+        )
+        return Response({"explanation": result})
+
+
 class _AnalyzeInput(serializers.Serializer):
     transcript = serializers.CharField(min_length=30, max_length=20000)
     mode = serializers.ChoiceField(

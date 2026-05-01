@@ -183,6 +183,45 @@ class User(AbstractUser):
             ),
         ]
 
+
+class Guardian(models.Model):
+    """F2 — Guardian / sponsor read-only access (parents, employers).
+
+    A student creates a Guardian, which yields a signed token tied to a
+    long-lived URL. The guardian view returns aggregate progress only —
+    streak, sessions completed, predicted band, attendance vs commitment.
+    No raw transcripts, essays, or chat content is ever exposed.
+
+    Auto-emailing weekly digests is intentionally NOT wired here (would
+    require a Railway cron worker). Guardians pull on demand.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey(
+        "accounts.User", on_delete=models.CASCADE, related_name="guardians",
+    )
+    name = models.CharField(max_length=120)
+    email = models.EmailField()
+    relationship = models.CharField(
+        max_length=40, blank=True, default="",
+        help_text="Free-form: parent, sponsor, employer, etc.",
+    )
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    last_viewed_at = models.DateTimeField(null=True, blank=True)
+    view_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "accounts_guardian"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["student", "revoked_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Guardian({self.name} -> {self.student.email})"
+
     def __str__(self) -> str:
         return self.email
 

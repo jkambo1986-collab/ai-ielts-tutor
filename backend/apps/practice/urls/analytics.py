@@ -9,6 +9,7 @@ from apps.practice.views.analytics import (
     StudyPlanView,
     WeaknessAnalysisView,
 )
+from apps.practice.views.coach_brief import CoachBriefView
 from apps.practice.views.cohort import CohortBenchmarkView
 from apps.practice.views.dashboard import DashboardAnalyticsView
 from apps.practice.views.dashboard_state import (
@@ -58,6 +59,7 @@ urlpatterns = [
     path("daily-challenge", DailyChallengeView.as_view(), name="analytics-daily-challenge"),
     path("badges", BadgesView.as_view(), name="analytics-badges"),
     path("guarantee", GuaranteeEligibilityView.as_view(), name="analytics-guarantee"),
+    path("coach-brief", CoachBriefView.as_view(), name="analytics-coach-brief"),
 
     # AI feedback voting (UI 5) + admin aggregation (Hard 3)
     path("feedback-votes", FeedbackVoteView.as_view(), name="analytics-feedback-votes"),

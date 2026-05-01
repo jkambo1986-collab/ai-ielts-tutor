@@ -7,6 +7,30 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+
+class _ExplainBandInput(serializers.Serializer):
+    prompt = serializers.CharField(min_length=10, max_length=2000)
+    essay = serializers.CharField(min_length=50, max_length=10000)
+    band = serializers.FloatField(min_value=1.0, max_value=9.0)
+
+
+class ExplainWritingBandView(APIView):
+    """F3 — descriptor-anchored band explanation for writing."""
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "ai_analyze"
+
+    def post(self, request):
+        s = _ExplainBandInput(data=request.data)
+        s.is_valid(raise_exception=True)
+        from apps.ai import service as ai_service
+        result = ai_service.explain_writing_band(
+            prompt=s.validated_data["prompt"],
+            essay=s.validated_data["essay"],
+            band=s.validated_data["band"],
+        )
+        return Response({"explanation": result})
+
 from apps.ai import service as ai_service
 from apps.ai.context import build_for_user
 from apps.ai.quality_gate import QualityGateError, gate_writing
