@@ -183,6 +183,39 @@ class User(AbstractUser):
             ),
         ]
 
+    def __str__(self) -> str:
+        return self.email
+
+    def save(self, *args, **kwargs):
+        # AbstractUser still has a unique `username` column even though we use
+        # email as USERNAME_FIELD. Mirror it from email so get_or_create() works.
+        if not self.username:
+            self.username = self.email
+        super().save(*args, **kwargs)
+
+    @property
+    def is_pro(self) -> bool:
+        from django.utils import timezone
+        if self.subscription_plan != self.PLAN_PRO:
+            return False
+        if self.subscription_end_date and self.subscription_end_date < timezone.now():
+            return False
+        return True
+
+    def downgrade_if_expired(self) -> bool:
+        """Auto-downgrade Pro -> Free if subscription has expired. Returns True if changed."""
+        from django.utils import timezone
+        if (
+            self.subscription_plan == self.PLAN_PRO
+            and self.subscription_end_date
+            and self.subscription_end_date < timezone.now()
+        ):
+            self.subscription_plan = self.PLAN_FREE
+            self.subscription_end_date = None
+            self.save(update_fields=["subscription_plan", "subscription_end_date"])
+            return True
+        return False
+
 
 class Guardian(models.Model):
     """F2 — Guardian / sponsor read-only access (parents, employers).
@@ -221,36 +254,3 @@ class Guardian(models.Model):
 
     def __str__(self) -> str:
         return f"Guardian({self.name} -> {self.student.email})"
-
-    def __str__(self) -> str:
-        return self.email
-
-    def save(self, *args, **kwargs):
-        # AbstractUser still has a unique `username` column even though we use
-        # email as USERNAME_FIELD. Mirror it from email so get_or_create() works.
-        if not self.username:
-            self.username = self.email
-        super().save(*args, **kwargs)
-
-    @property
-    def is_pro(self) -> bool:
-        from django.utils import timezone
-        if self.subscription_plan != self.PLAN_PRO:
-            return False
-        if self.subscription_end_date and self.subscription_end_date < timezone.now():
-            return False
-        return True
-
-    def downgrade_if_expired(self) -> bool:
-        """Auto-downgrade Pro -> Free if subscription has expired. Returns True if changed."""
-        from django.utils import timezone
-        if (
-            self.subscription_plan == self.PLAN_PRO
-            and self.subscription_end_date
-            and self.subscription_end_date < timezone.now()
-        ):
-            self.subscription_plan = self.PLAN_FREE
-            self.subscription_end_date = None
-            self.save(update_fields=["subscription_plan", "subscription_end_date"])
-            return True
-        return False
