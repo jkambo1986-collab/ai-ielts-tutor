@@ -46,19 +46,20 @@ class PaymentRequired(APIException):
 
 
 def user_has_feature(user, feature: str) -> bool:
-    """Check whether the user's institute + plan grants this feature.
+    """Paywall removed: every authenticated user gets every feature.
 
-    Order of checks:
-      1. Institute-level override (lets us comp specific institutes).
-      2. User's own plan (free vs pro).
+    Kept as a function (not deleted) so call sites — including the
+    `requires_feature` decorator and `/api/billing/features` — keep working
+    without touching every endpoint. Re-enable plan gating by restoring the
+    institute-override + plan check below.
     """
-    # Institute override — feature_overrides can force True/False per institute
-    settings_obj = getattr(user.institute, "settings", None)
-    if settings_obj and feature in settings_obj.feature_overrides:
-        return bool(settings_obj.feature_overrides[feature])
-
-    plan = "pro" if user.is_pro else "free"
-    return feature in PLAN_FEATURES.get(plan, set())
+    return True
+    # --- previous paywall logic, kept for reference ---
+    # settings_obj = getattr(user.institute, "settings", None)
+    # if settings_obj and feature in settings_obj.feature_overrides:
+    #     return bool(settings_obj.feature_overrides[feature])
+    # plan = "pro" if user.is_pro else "free"
+    # return feature in PLAN_FEATURES.get(plan, set())
 
 
 def requires_feature(feature: str):
